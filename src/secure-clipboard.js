@@ -10,9 +10,21 @@ function write(pasteboard, text) {
     items.addObject(item);
     pasteboard.clearContents;
     if (!pasteboard.writeObjects(items)) throw new Error('Clipboard write failed');
+    return Number(pasteboard.changeCount);
+}
+
+function clearIf(board, counter) {
+    if (Number(board.changeCount) !== counter) return false;
+    board.clearContents;
+    return true;
 }
 
 function run(args) {
+    if (args.length === 2 && args[0] === '--clear-if' && /^[0-9]+$/.test(args[1])) {
+        const board = $.NSPasteboard.generalPasteboard;
+        clearIf(board, Number(args[1]));
+        return;
+    }
     if (args.length === 1 && args[0] === '--selftest') {
         // A private named pasteboard leaves the user's clipboard untouched.
         const board = $.NSPasteboard.pasteboardWithUniqueName;
@@ -26,6 +38,10 @@ function run(args) {
                     if (types.indexOf(marker) < 0) throw new Error('Clipboard privacy marker missing');
                 }
             }
+            const previous = write(board, $('same fixture'));
+            const current = write(board, $('same fixture'));
+            if (clearIf(board, previous)) throw new Error('Cleared a subsequent copy');
+            if (!clearIf(board, current)) throw new Error('Did not clear the owned copy');
         } finally {
             board.releaseGlobally;
         }
@@ -35,5 +51,5 @@ function run(args) {
     const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;
     const text = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
     if (!text) throw new Error('Clipboard input must be UTF-8');
-    write($.NSPasteboard.generalPasteboard, text);
+    return String(write($.NSPasteboard.generalPasteboard, text));
 }

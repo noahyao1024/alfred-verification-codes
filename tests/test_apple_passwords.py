@@ -1,8 +1,11 @@
 import contextlib
+import hashlib
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import unittest
@@ -13,100 +16,165 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("apple_passwords", ROOT / "src/apple-passwords.py")
 app = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(app)
+from passwords_bridge import clipboard, extension, session
+from passwords_bridge.browser import BridgeError
 
 
 class QueryTests(unittest.TestCase):
-    def test_url_reduces_to_hostname_and_preserves_username(self):
-        self.assertEqual(app.parse_query("https://GitHub.com/login?a=b Jane Doe"),
-                         ("github.com", "Jane Doe"))
-        self.assertEqual(app.parse_query("例子.测试 me@example.com"),
-                         ("xn--fsqu00a.xn--0zwm56d", "me@example.com"))
+    def test_url_and_literal_username(self):
+        self.assertEqual(app.parse_query("https://GitHub.com/login?a=b Jane Doe"), ("github.com", "Jane Doe"))
+        self.assertEqual(app.parse_query("例子.测试 me@example.com"), ("xn--fsqu00a.xn--0zwm56d", "me@example.com"))
+        self.assertEqual(app.parse_query("example.com --show $(echo literal)"), ("example.com", "--show $(echo literal)"))
 
-    def test_rejects_options_credentials_and_non_web_urls(self):
+    def test_bad_sites_fail_before_password_access(self):
         for query in ("", "--show", "https://user:secret@example.com", "file:///etc/passwd",
                       "https://", "example..com", "$(touch-x).com", "[broken"):
-            with self.subTest(query=query), self.assertRaises(ValueError):
+            with self.subTest(query=query), self.assertRaises(BridgeError):
                 app.parse_query(query)
 
-    def test_invalid_clear_delay_fails_before_copy(self):
+    def test_clear_delay_is_bounded(self):
         for value in ("-1", "NaN", "1.5", "90000"):
-            with self.subTest(value=value), patch.dict(os.environ, {"CLEAR_CLIPBOARD_AFTER": value}):
-                with self.assertRaises(ValueError):
-                    app.clear_seconds()
-
-    def test_explicit_missing_binary_does_not_silently_fallback(self):
-        with patch.dict(os.environ, {"APWCLI_PATH": "/does-not-exist/apwcli"}):
-            with self.assertRaises(ValueError):
-                app.cli_path()
+            with patch.dict(os.environ, {"CLEAR_CLIPBOARD_AFTER": value}), self.assertRaises(BridgeError):
+                app.clear_seconds()
 
 
-class CopyTests(unittest.TestCase):
-    def invoke(self, mode, query, code=0, stdout=b"", stderr=b""):
-        result = subprocess.CompletedProcess([], code, stdout, stderr)
-        with patch.object(app, "cli_path", return_value="/fake/apwcli"), \
-             patch.object(app.subprocess, "run", return_value=result) as proc, \
-             patch.dict(os.environ, {"CLEAR_CLIPBOARD_AFTER": "45"}):
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output):
-                status = app.main([mode, query])
-            return status, output.getvalue(), proc.call_args
-
-    def test_password_and_otp_use_clipboard_mode_and_literal_argv(self):
-        username = "--show $(touch /tmp/NEVER) `text` 中文"
-        for mode, group in (("password", "pw"), ("otp", "otp")):
-            status, output, call = self.invoke(mode, "example.com " + username)
+class FrontendTests(unittest.TestCase):
+    def test_no_secret_in_notification(self):
+        for mode in ("password", "otp"):
+            with patch.object(app, "read_secret", return_value="FAKE-SECRET") as read, \
+                 patch.object(app, "copy_secret") as copy, patch.dict(os.environ, {"CLEAR_CLIPBOARD_AFTER": "45"}):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    status = app.main([mode, "example.com --show literal user"])
             self.assertEqual(status, 0)
-            self.assertEqual(call.args[0], ["/fake/apwcli", group, "get", "--clipboard",
-                                          "--clear-after", "45", "--", "example.com", username])
-            self.assertEqual(call.kwargs["stdin"], subprocess.DEVNULL)
-            self.assertNotIn("shell", call.kwargs)
-            self.assertTrue(call.kwargs["env"]["PATH"].startswith(str(ROOT / "src/clipboard-bin") + ":"))
-            self.assertNotIn(username, output)
+            read.assert_called_once_with(mode, "example.com", "--show literal user")
+            copy.assert_called_once_with("FAKE-SECRET", 45)
+            self.assertNotIn("FAKE-SECRET", output.getvalue())
 
-    def test_backend_output_is_never_forwarded_even_on_failure(self):
-        secret = b"FAKE-SECRET-DO-NOT-LOG"
-        for code in (0, 1, 9, 127):
-            status, output, _ = self.invoke("password", "example.com", code, secret, secret)
-            self.assertNotIn(secret.decode(), output)
-            self.assertEqual(status, 0 if code == 0 else 1)
-
-    def test_ambiguous_and_empty_results_do_not_claim_success(self):
-        for error in (b"multiple matches (alice, bob)", b"no password to copy",
-                      b"no one-time code to copy"):
-            status, output, _ = self.invoke("otp", "example.com", 2, stderr=error)
+    def test_unexpected_exception_text_is_not_forwarded(self):
+        for error in (ValueError("FAKE-SECRET"), RuntimeError("FAKE-SECRET")):
+            with patch.object(app, "read_secret", side_effect=error), patch.object(app, "copy_secret") as copy:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    status = app.main(["password", "example.com"])
             self.assertEqual(status, 1)
-            self.assertNotIn("已复制", output)
-            self.assertNotIn("alice", output)
+            self.assertNotIn("FAKE-SECRET", output.getvalue())
+            copy.assert_not_called()
 
-    def test_pairing_has_no_password_read(self):
-        status, _, call = self.invoke("pair", "")
-        self.assertEqual(status, 0)
-        self.assertEqual(call.args[0], ["/fake/apwcli", "daemon", "pair"])
+    def test_setup_does_not_pair_or_read_credentials(self):
+        with patch.object(app, "setup") as prepare, patch.object(app, "read_secret") as read:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(app.main(["pair"]), 0)
+            prepare.assert_called_once()
+            read.assert_not_called()
 
-    def test_timeout_does_not_expose_captured_output(self):
-        timeout = subprocess.TimeoutExpired("fake", 180, output=b"FAKE-SECRET")
-        with patch.object(app, "cli_path", return_value="/fake/apwcli"), \
-             patch.object(app.subprocess, "run", side_effect=timeout):
-            ok, message = app.run("password", "example.com")
-        self.assertFalse(ok)
-        self.assertIn("超时", message)
-        self.assertNotIn("FAKE-SECRET", message)
+    def test_invalid_mode_never_starts_session(self):
+        with patch.object(app, "read_secret") as read, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(app.main(["save", "example.com"]), 1)
+            read.assert_not_called()
 
-    def test_input_errors_never_launch_backend(self):
-        with patch.object(app.subprocess, "run") as proc, contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(app.main(["password", "--show"]), 1)
-            self.assertEqual(app.main(["invalid-mode", "example.com"]), 1)
-            proc.assert_not_called()
+    def test_context_closes_before_secret_returns(self):
+        events = []
+        with patch.object(session, "PasswordSession") as constructor:
+            owned = constructor.return_value
+            owned.__enter__.return_value = owned
+            owned.read.side_effect = lambda mode: events.append("read") or "fixture"
+            owned.__exit__.side_effect = lambda *args: events.append("closed") or False
+            self.assertEqual(session.read_secret("password", "example.com", "user"), "fixture")
+            events.append("returned")
+        self.assertEqual(events, ["read", "closed", "returned"])
+
+    def test_pairing_failure_still_closes_session(self):
+        with patch.object(session, "PasswordSession") as constructor:
+            owned = constructor.return_value
+            owned.__enter__.return_value = owned
+            owned.pair.side_effect = BridgeError("cancelled")
+            with self.assertRaises(BridgeError):
+                session.read_secret("otp", "example.com", "user")
+            owned.__exit__.assert_called_once()
+            owned.read.assert_not_called()
+
+
+class ResultTests(unittest.TestCase):
+    def test_password_formats_and_exact_username(self):
+        rows = [{"USR": "alice", "PWD": "FAKE-A"}, {"USR": "bob", "PWD": "FAKE-B"}]
+        self.assertEqual(session.select_secret({"data": {"STATUS": 0, "Entries": rows}}, "password", "bob"), "FAKE-B")
+        self.assertEqual(session.select_secret({"data": {"STATUS": 0, "Entry_0": rows[0]}}, "password", ""), "FAKE-A")
+
+    def test_otp_preserves_leading_zero(self):
+        data = {"data": {"STATUS": 0, "Entries": [{"username": "alice", "code": "012345"}]}}
+        self.assertEqual(session.select_secret(data, "otp", "alice"), "012345")
+
+    def test_ambiguous_missing_and_invalid_results_fail_closed(self):
+        for data in ({"STATUS": 0, "Entries": [{"USR": "a", "PWD": "one"}, {"USR": "b", "PWD": "two"}]},
+                     {"STATUS": 0, "Entries": []}, {"STATUS": 0, "Entries": [{"PWD": "Not Included"}]},
+                     {"STATUS": 3}, {"STATUS": 9}, {"STATUS": False}, {}):
+            with self.subTest(data=data), self.assertRaises(BridgeError):
+                session.select_secret({"data": data}, "password", "")
+
+    def test_error_payload_is_not_exposed(self):
+        with self.assertRaises(BridgeError) as captured:
+            session.select_secret({"status": 100, "error": "FAKE-SECRET"}, "password", "")
+        self.assertNotIn("FAKE-SECRET", str(captured.exception))
+
+
+class ClipboardTests(unittest.TestCase):
+    def test_secret_only_on_stdin_and_timer_holds_only_counter(self):
+        result = subprocess.CompletedProcess([], 0, b"42\n", b"")
+        with patch.object(clipboard.subprocess, "run", return_value=result) as writer, \
+             patch.object(clipboard.subprocess, "Popen") as timer:
+            clipboard.copy_secret("FAKE-SECRET", 45)
+        self.assertEqual(writer.call_args.kwargs["input"], b"FAKE-SECRET")
+        self.assertNotIn("FAKE-SECRET", repr(writer.call_args.args))
+        self.assertNotIn("FAKE-SECRET", repr(timer.call_args))
+        self.assertIn("42", timer.call_args.args[0])
+        self.assertEqual(timer.call_args.kwargs["stdin"], subprocess.DEVNULL)
+
+    def test_disabled_timer_spawns_no_process(self):
+        with patch.object(clipboard.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"1", b"")), \
+             patch.object(clipboard.subprocess, "Popen") as timer:
+            clipboard.copy_secret("fixture", 0)
+            timer.assert_not_called()
+
+    def test_clipboard_failure_is_not_reported_as_success(self):
+        with patch.object(clipboard.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, b"FAKE-SECRET", b"")), \
+             patch.object(clipboard.subprocess, "Popen") as timer, self.assertRaises(BridgeError):
+            clipboard.copy_secret("fixture", 45)
+        timer.assert_not_called()
+
+
+class ExtensionTests(unittest.TestCase):
+    def test_exact_digest_required(self):
+        fixture = b"reviewed extension fixture"
+        with patch.object(extension, "SHA256", hashlib.sha256(fixture).hexdigest()):
+            self.assertEqual(extension.verify(fixture), fixture)
+            with self.assertRaises(BridgeError):
+                extension.verify(fixture + b"modified")
+
+    def test_missing_cache_does_not_auto_download_during_copy(self):
+        with patch.object(extension, "archive_path", return_value=Path("/missing-extension-fixture.crx")), \
+             patch.object(extension.urllib.request, "urlopen") as network, self.assertRaises(BridgeError):
+            extension.prepare(Path("unused"))
+        network.assert_not_called()
 
 
 @unittest.skipUnless(sys.platform == "darwin", "macOS pasteboard required")
 class NativeClipboardTests(unittest.TestCase):
-    def test_private_pasteboard_preserves_text_and_privacy_markers(self):
+    def test_native_markers_and_copy_generation_guard(self):
         result = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript",
                                  str(ROOT / "src/secure-clipboard.js"), "--selftest"],
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("selftest passed", result.stdout)
+
+
+@unittest.skipUnless(shutil.which("node"), "Node required only for JS development tests")
+class JavaScriptPolicyTests(unittest.TestCase):
+    def test_read_only_scope_and_crypto_routing(self):
+        result = subprocess.run([shutil.which("node"), str(ROOT / "tests/bridge_policy.test.js")],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Bridge policy tests passed", result.stdout)
 
 
 if __name__ == "__main__":

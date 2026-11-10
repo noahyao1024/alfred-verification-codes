@@ -1,3 +1,0 @@
-#!/bin/sh
-# apwcli sends the secret over stdin, never argv, environment, or a file.
-exec /usr/bin/osascript -l JavaScript "$(dirname "$0")/../secure-clipboard.js"

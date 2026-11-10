@@ -1,5 +1,10 @@
 # Earlier Passwords UI automation findings
 
+Update for 0.6.0: the protocol bridge is now bundled under its MIT license.
+Browser control uses inherited CDP pipes and each copy tears down its session;
+the apwcli daemon and its TCP debugging endpoint are no longer used. See
+[SECURITY.md](SECURITY.md) for verified boundaries and remaining limitations.
+
 Update for 0.5.0: these are historical observations of the UI-scripting route,
 not proof that all integration is impossible. `pass` and `pcode` now use
 [apwcli](https://github.com/michel-tricot/apwcli), which communicates through

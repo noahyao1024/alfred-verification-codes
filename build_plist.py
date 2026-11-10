@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.5.0")
+VERSION = os.environ.get("VERSION", "0.6.0")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -92,13 +92,13 @@ objects = [
     },
     keyword(KW_PASSWORD, "{var:passwordkeyword}", "复制 Apple Passwords 密码",
             "输入网站域名；多个账号时在后面加用户名", argumenttype=0),
-    runscript(S_PASSWORD, '/usr/bin/python3 apple-passwords.py password "$1"'),
+    runscript(S_PASSWORD, '/usr/bin/python3 -I apple-passwords.py password "$1"'),
     keyword(KW_APP_OTP, "{var:appleotpkeyword}", "复制 Apple Passwords 验证码",
             "输入网站域名；验证码直接来自系统「密码」", argumenttype=0),
-    runscript(S_APP_OTP, '/usr/bin/python3 apple-passwords.py otp "$1"'),
-    keyword(KW_PAIR, "{var:pairkeyword}", "配对 Apple Passwords",
-            "在本机输入 Apple 显示的配对码", argumenttype=2),
-    runscript(S_PAIR, '/usr/bin/python3 apple-passwords.py pair'),
+    runscript(S_APP_OTP, '/usr/bin/python3 -I apple-passwords.py otp "$1"'),
+    keyword(KW_PAIR, "{var:pairkeyword}", "准备 Apple Passwords 扩展",
+            "下载并校验固定版本；复制时再进行本次配对", argumenttype=2),
+    runscript(S_PAIR, '/usr/bin/python3 -I apple-passwords.py pair'),
 ]
 
 connections = {
@@ -145,13 +145,8 @@ userconfig = [
     },
     {
         "config": {"default": "pwsetup", "placeholder": "pwsetup", "required": True, "trim": True},
-        "description": "与 Apple Passwords 配对；配对码只在本机输入。",
-        "label": "Pairing keyword", "type": "textfield", "variable": "pairkeyword",
-    },
-    {
-        "config": {"default": "", "placeholder": "/opt/homebrew/bin/apwcli", "required": False, "trim": True},
-        "description": "可选。自定义 apwcli 可执行文件的完整路径。先安装：brew install michel-tricot/tap/apwcli。",
-        "label": "apwcli path", "type": "textfield", "variable": "APWCLI_PATH",
+        "description": "准备固定版本扩展。每次复制时完成独立 Apple 配对，结束后关闭会话。",
+        "label": "Setup keyword", "type": "textfield", "variable": "pairkeyword",
     },
     {
         "config": {"default": "otp", "placeholder": "otp",
@@ -177,30 +172,30 @@ userconfig = [
 
 readme = """## Setup
 
-To copy directly from Apple Passwords, install apwcli once:
-
-`brew install michel-tricot/tap/apwcli`
-
-Then run `pwsetup` in Alfred and complete the local Apple PIN pairing.
-Requires a supported Chromium browser. apwcli downloads Apple's iCloud \
-Passwords extension and runs it in a dedicated background browser profile.
-It is a third-party integration, not an Apple-supported CLI.
+Run `pwsetup` once to download and verify the pinned Apple extension.
+Requires Chrome, Brave, Edge, or Chromium. This edition uses bundled MIT \
+bridge code with Python's standard library; apwcli and chauffeur are not runtime dependencies.
 
 Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
-* `pass github.com [username]`: copy a password from Apple Passwords.
-* `pcode github.com [username]`: copy its current verification code.
+* `pass github.com [username]`: pair for this operation, then copy a password.
+* `pcode github.com [username]`: pair for this operation, then copy its current code.
 * If several accounts match, specify the username; nothing is copied until \
 the match is unique. Enter usernames literally, without shell quotes.
 
 The new commands do not expose credentials to Alfred's debugger or \
 notifications. Clipboard privacy markers request exclusion from history.
-Run `apwcli doctor` to diagnose the connection and `apwcli daemon stop` to \
-stop the helper. Re-run `pwsetup` if pairing expires.
+Each operation owns a separate browser and anonymous CDP pipes. There is no \
+daemon socket or TCP debugging listener. The browser closes before the secret \
+is copied, so the next operation requires a new Apple pairing. This trades \
+convenience for a shorter authorization lifetime.
 
-The existing standalone OTP generator needs no apwcli setup:
+The Apple extension is still modified to carry the bridge. A compromised Mac \
+or modified workflow can still access secrets; this is not an independent security audit.
+
+The existing standalone OTP generator needs no extension setup:
 
 Copy a time-based verification code for a stored account via the `otp` keyword.
 
@@ -238,7 +233,7 @@ wf = {
     "userconfigurationconfig": userconfig,
     "variables": {"otpkeyword": "otp", "otpaddkeyword": "otpadd",
                   "passwordkeyword": "pass", "appleotpkeyword": "pcode",
-                  "pairkeyword": "pwsetup", "APWCLI_PATH": "",
+                  "pairkeyword": "pwsetup",
                   "CLEAR_CLIPBOARD_AFTER": "45"},
     "variablesdontexport": [],
     "version": VERSION,

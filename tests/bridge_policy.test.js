@@ -1,0 +1,49 @@
+const fs = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const source = fs.readFileSync(path.join(__dirname, '../src/passwords_bridge/apw_bridge.js'), 'utf8');
+
+function fixture(operation = 'password') {
+    let receiver, sent = 0;
+    const context = vm.createContext({
+        setTimeout, clearTimeout,
+        self: {addEventListener() {}},
+        __passwordsConfig: {statusOk: 0, statusInvalidParam: 2, statusInvalidSession: 9,
+            statusServerError: 100, nativeTimeoutMs: 1000, wireUnpaired: 'unpaired',
+            operation, domain: 'example.com', username: 'alice'},
+        g_theState: 'SessionKeySet',
+        g_secretSession: {createSMSG: value => value, parseSMSG: value => value},
+        g_nativeAppPort: {
+            onMessage: {addListener(fn) {receiver = fn;}},
+            postMessage(message) {
+                sent++;
+                queueMicrotask(() => receiver({cmd: message.cmd, payload: {SMSG: JSON.stringify({
+                    STATUS: 0, Entries: [{USR: 'alice', PWD: 'FAKE-only'}]
+                })}}));
+            }
+        }
+    });
+    vm.runInContext(source, context);
+    return {context, request: context.__passwordsBridge.request, count: () => sent};
+}
+
+(async () => {
+    const pw = {cmd: 5, qid: 'CmdGetPassword4LoginName', body: {ACT: 2, URL: 'example.com', USR: 'alice'}};
+    const otp = {cmd: 17, qid: 'CmdDidFillOneTimeCode', body: {ACT: 2, TYPE: 'oneTimeCodes', frameURLs: ['https://example.com']}};
+    const f = fixture();
+    assert.equal((await f.request({cmd: 6, qid: 'write', body: {}})).status, 2);
+    assert.equal((await f.request({...pw, body: {...pw.body, URL: 'other.example'}})).status, 2);
+    assert.equal((await f.request({...pw, body: {...pw.body, USR: 'bob'}})).status, 2);
+    assert.equal((await f.request(otp)).status, 2);
+    assert.equal(f.count(), 0);
+    assert.equal((await f.request(pw)).data.Entries[0].PWD, 'FAKE-only');
+    assert.equal(f.count(), 1);
+    f.context.g_theState = 'NotInSession';
+    assert.equal((await f.request(pw)).status, 9);
+    assert.equal(f.count(), 1);
+    const code = fixture('otp');
+    assert.equal((await code.request(pw)).status, 2);
+    assert.equal((await code.request(otp)).data.STATUS, 0);
+    console.log('Bridge policy tests passed');
+})().catch(error => {console.error(error); process.exitCode = 1;});

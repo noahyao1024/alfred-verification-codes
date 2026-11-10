@@ -14,7 +14,7 @@ python3 -m unittest discover -s tests -v
 python3 build_plist.py
 mkdir -p dist
 rm -f "dist/$NAME.alfredworkflow"
-chmod +x src/copy-otp.sh src/add-otp.sh src/totp.py src/clipboard-bin/pbcopy
+chmod +x src/copy-otp.sh src/add-otp.sh src/totp.py
 rm -rf src/__pycache__
-( cd src && zip -q -r "../dist/$NAME.alfredworkflow" . -x '.*' '__pycache__/*' )
+( cd src && zip -q -r "../dist/$NAME.alfredworkflow" . -x '.*' '__pycache__/*' '*/__pycache__/*' '*.pyc' )
 echo "Built dist/$NAME.alfredworkflow"

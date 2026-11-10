@@ -359,7 +359,7 @@
 				<key>escaping</key>
 				<integer>102</integer>
 				<key>script</key>
-				<string>/usr/bin/python3 apple-passwords.py password "$1"</string>
+				<string>/usr/bin/python3 -I apple-passwords.py password "$1"</string>
 				<key>scriptargtype</key>
 				<integer>1</integer>
 				<key>scriptfile</key>
@@ -403,7 +403,7 @@
 				<key>escaping</key>
 				<integer>102</integer>
 				<key>script</key>
-				<string>/usr/bin/python3 apple-passwords.py otp "$1"</string>
+				<string>/usr/bin/python3 -I apple-passwords.py otp "$1"</string>
 				<key>scriptargtype</key>
 				<integer>1</integer>
 				<key>scriptfile</key>
@@ -426,9 +426,9 @@
 				<key>keyword</key>
 				<string>{var:pairkeyword}</string>
 				<key>subtext</key>
-				<string>在本机输入 Apple 显示的配对码</string>
+				<string>下载并校验固定版本；复制时再进行本次配对</string>
 				<key>text</key>
-				<string>配对 Apple Passwords</string>
+				<string>准备 Apple Passwords 扩展</string>
 				<key>withspace</key>
 				<true/>
 			</dict>
@@ -447,7 +447,7 @@
 				<key>escaping</key>
 				<integer>102</integer>
 				<key>script</key>
-				<string>/usr/bin/python3 apple-passwords.py pair</string>
+				<string>/usr/bin/python3 -I apple-passwords.py pair</string>
 				<key>scriptargtype</key>
 				<integer>1</integer>
 				<key>scriptfile</key>
@@ -466,26 +466,23 @@
 	<key>readme</key>
 	<string>## Setup
 
-To copy directly from Apple Passwords, install apwcli once:
-
-`brew install michel-tricot/tap/apwcli`
-
-Then run `pwsetup` in Alfred and complete the local Apple PIN pairing.
-Requires a supported Chromium browser. apwcli downloads Apple's iCloud Passwords extension and runs it in a dedicated background browser profile.
-It is a third-party integration, not an Apple-supported CLI.
+Run `pwsetup` once to download and verify the pinned Apple extension.
+Requires Chrome, Brave, Edge, or Chromium. This edition uses bundled MIT bridge code with Python's standard library; apwcli and chauffeur are not runtime dependencies.
 
 Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
-* `pass github.com [username]`: copy a password from Apple Passwords.
-* `pcode github.com [username]`: copy its current verification code.
+* `pass github.com [username]`: pair for this operation, then copy a password.
+* `pcode github.com [username]`: pair for this operation, then copy its current code.
 * If several accounts match, specify the username; nothing is copied until the match is unique. Enter usernames literally, without shell quotes.
 
 The new commands do not expose credentials to Alfred's debugger or notifications. Clipboard privacy markers request exclusion from history.
-Run `apwcli doctor` to diagnose the connection and `apwcli daemon stop` to stop the helper. Re-run `pwsetup` if pairing expires.
+Each operation owns a separate browser and anonymous CDP pipes. There is no daemon socket or TCP debugging listener. The browser closes before the secret is copied, so the next operation requires a new Apple pairing. This trades convenience for a shorter authorization lifetime.
 
-The existing standalone OTP generator needs no apwcli setup:
+The Apple extension is still modified to carry the bridge. A compromised Mac or modified workflow can still access secrets; this is not an independent security audit.
+
+The existing standalone OTP generator needs no extension setup:
 
 Copy a time-based verification code for a stored account via the `otp` keyword.
 
@@ -642,34 +639,13 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 				<true/>
 			</dict>
 			<key>description</key>
-			<string>与 Apple Passwords 配对；配对码只在本机输入。</string>
+			<string>准备固定版本扩展。每次复制时完成独立 Apple 配对，结束后关闭会话。</string>
 			<key>label</key>
-			<string>Pairing keyword</string>
+			<string>Setup keyword</string>
 			<key>type</key>
 			<string>textfield</string>
 			<key>variable</key>
 			<string>pairkeyword</string>
-		</dict>
-		<dict>
-			<key>config</key>
-			<dict>
-				<key>default</key>
-				<string></string>
-				<key>placeholder</key>
-				<string>/opt/homebrew/bin/apwcli</string>
-				<key>required</key>
-				<false/>
-				<key>trim</key>
-				<true/>
-			</dict>
-			<key>description</key>
-			<string>可选。自定义 apwcli 可执行文件的完整路径。先安装：brew install michel-tricot/tap/apwcli。</string>
-			<key>label</key>
-			<string>apwcli path</string>
-			<key>type</key>
-			<string>textfield</string>
-			<key>variable</key>
-			<string>APWCLI_PATH</string>
 		</dict>
 		<dict>
 			<key>config</key>
@@ -737,8 +713,6 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 	</array>
 	<key>variables</key>
 	<dict>
-		<key>APWCLI_PATH</key>
-		<string></string>
 		<key>CLEAR_CLIPBOARD_AFTER</key>
 		<string>45</string>
 		<key>appleotpkeyword</key>
@@ -755,7 +729,7 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 	<key>variablesdontexport</key>
 	<array/>
 	<key>version</key>
-	<string>0.5.0</string>
+	<string>0.6.0</string>
 	<key>webaddress</key>
 	<string>https://github.com/noahyao1024/alfred-verification-codes</string>
 </dict>
