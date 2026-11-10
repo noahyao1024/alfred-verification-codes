@@ -1,17 +1,57 @@
-# Verification Codes
+# Passwords Quick Copy
 
-An [Alfred](https://www.alfredapp.com) workflow that copies time-based
-verification codes to the clipboard, generated locally from seeds held in your
-login keychain.
+An [Alfred](https://www.alfredapp.com) workflow that copies passwords and current
+verification codes from Apple Passwords through [apwcli](https://github.com/michel-tricot/apwcli).
+The existing `otp` / `otpadd` commands also support standalone seeds in your login keychain.
 
 ## Setup
 
-Nothing to set up. Seeds live in your login keychain, never in this workflow or
-this repository.
+For direct Apple Passwords access:
+
+```sh
+brew install michel-tricot/tap/apwcli
+```
+
+Import `dist/Passwords Quick Copy.alfredworkflow`, then run `pwsetup` in Alfred.
+Enter the PIN shown by macOS into the local pairing window. Do not type it into
+Alfred or send it in a chat. Pair again after the helper restarts.
+
+This requires Alfred Powerpack and a supported Chromium browser (Chrome, Brave,
+Edge, or Chromium). apwcli 0.1.2 downloads Apple's iCloud Passwords extension and
+hosts it in a separate background browser profile. It is a third-party bridge;
+changes to Apple's extension can affect compatibility. No Apple Passwords CSV
+export or duplicated OTP seed is required for `pass` / `pcode`.
+
+If apwcli is installed elsewhere, set its full executable path in Workflow
+Configuration. For the standalone `otp` / `otpadd` commands, no setup changes:
+seeds live in your login keychain, never in this workflow or repository.
 
 Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
+
+| Alfred input | Result |
+| --- | --- |
+| `pass github.com` | Copy the unique matching password from Apple Passwords |
+| `pass github.com me@example.com` | Copy the password for this username |
+| `pcode github.com` | Copy the unique matching current verification code |
+| `pcode github.com me@example.com` | Copy the code for this username |
+| `pwsetup` | Pair with Apple Passwords in a local window |
+| `otp` / `otpadd` | Use the existing, separate local seed store |
+
+When more than one account matches, nothing is copied; add the username. The
+username is literal text (spaces are allowed); do not add shell quotes. A full
+http/https URL may replace the domain; only its hostname is used. apwcli matches
+by registrable domain, so subdomains can return the same set of accounts.
+
+`pass` and `pcode` invoke apwcli's clipboard-only operation on Enter. Neither
+passwords nor codes are returned to Alfred's debugger or notifications. They
+receive clipboard privacy markers used by Alfred and other compliant history
+managers; applications that ignore these markers may still record the clipboard.
+The existing clear delay applies (45 seconds by default, `0` disables it).
+
+These commands read Apple Passwords; they do not list the whole vault or edit
+credentials. The original local-seed commands below remain separate.
 
 **Add an account.** Copy its secret or `otpauth://` link, then use the `otpadd`
 keyword. Give it a name, or leave it blank to take the name from the link. Your
@@ -75,19 +115,36 @@ dist/    built .alfredworkflow package
 ```
 
 ```sh
-./build.sh              # runs the TOTP selftest, then packages
+./build.sh              # runs TOTP vectors and integration boundary tests, then packages
 python3 build_plist.py  # regenerate info.plist only
 ```
+
+With apwcli installed, run `tests/check_apwcli_contract.py` using its virtualenv's
+Python (Homebrew: `$(brew --prefix apwcli)/libexec/bin/python`). This exercises
+the real CLI parser and unique-account rules with a fake vault and clipboard;
+it does not start the daemon or access credentials.
 
 The build fails if the RFC 6238 vectors stop matching. That guard exists because
 this shipped once with a generator that had never been verified.
 
+## Troubleshooting
+
+Use `apwcli doctor` for browser, extension, and pairing diagnostics. Use
+`apwcli daemon status` to check the helper and `apwcli daemon stop` to stop it.
+Its log is `~/.apwlib/daemon.log`. The helper starts again on the next request.
+If a pairing window is dismissed or expires, run `pwsetup` and retry.
+
+With multiple accounts, append the username. With no verification code, check
+that the matching Apple Passwords entry has a code configured. The new commands
+never fall back to the standalone `otp` store.
+
 ## Prior history
 
 This workflow started out trying to copy passwords directly from Apple's
-Passwords app. That turned out to be impossible; the evidence is written up in
-[FINDINGS.md](FINDINGS.md), and the code that attempted it is in the git
-history.
+Passwords app's UI. That approach failed; the observations are recorded in
+[FINDINGS.md](FINDINGS.md). The new `pass` / `pcode` commands use the browser
+extension bridge instead of UI scripting. See [使用说明.md](使用说明.md) for Chinese
+setup and acceptance steps.
 
 ## Licence
 

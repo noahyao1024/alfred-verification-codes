@@ -7,9 +7,9 @@ cd "$(dirname "$0")"
 : "${GH_USER:?Set GH_USER to your GitHub username}"
 : "${AUTHOR:?Set AUTHOR to your name}"
 REPO="${REPO:-alfred-verification-codes}"
-VERSION="${VERSION:-0.3.0}"
-NAME="Verification Codes"
-DESCRIPTION="Alfred workflow to copy time-based verification codes, generated locally from seeds in your login keychain"
+VERSION="${VERSION:-0.5.0}"
+NAME="Passwords Quick Copy"
+DESCRIPTION="Alfred workflow to copy Apple Passwords passwords and verification codes"
 
 echo "Building $VERSION with GH_USER=$GH_USER AUTHOR=$AUTHOR"
 # VERSION must be exported: build_plist.py reads it, and without it the bundle
@@ -32,13 +32,14 @@ git push -u origin main
 
 gh release create "v$VERSION" "dist/$NAME.alfredworkflow" \
   --title "v$VERSION" \
-  --notes "Copy a time-based verification code to your clipboard via Alfred.
+  --notes "Copy Apple Passwords passwords and verification codes via Alfred.
 
-Codes are generated locally from a seed held in your login keychain, so this
-works offline, opens nothing, and needs no Accessibility permission.
+Install the apwcli dependency, then use pwsetup to complete local Apple pairing.
+Use pass with a domain to copy a password, or pcode to copy a verification code.
+Append the username when multiple accounts match.
 
-Download the .alfredworkflow file below and double-click to install, then store
-a seed with: python3 src/totp.py --store \"you@example.com\""
+The existing otp and otpadd local-seed commands remain available.
+Download the .alfredworkflow file below and double-click to install."
 
 echo
 echo "Done: https://github.com/$GH_USER/$REPO"

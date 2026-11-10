@@ -1,7 +1,13 @@
-# Why the Apple Passwords app cannot be scripted
+# Earlier Passwords UI automation findings
+
+Update for 0.5.0: these are historical observations of the UI-scripting route,
+not proof that all integration is impossible. `pass` and `pcode` now use
+[apwcli](https://github.com/michel-tricot/apwcli), which communicates through
+Apple's iCloud Passwords browser extension. This requires local pairing and a
+supported browser; it does not rely on programmatic row selection.
 
 This workflow began as an attempt to copy passwords directly out of Apple's
-**Passwords** app. That is not possible, and this file records the evidence so
+**Passwords** app. That attempt failed, and this file records the evidence so
 the next person does not spend a day rediscovering it.
 
 Tested on macOS 26.6.1 against an unlocked app with 1,376 entries.
@@ -72,12 +78,12 @@ drives the old System Preferences pane rather than the standalone app, has been
 unmaintained since 2023, and carries an unresolved "does not work on macOS
 Ventura" issue.
 
-## The conclusion
+## The conclusion at the time
 
 Generating codes locally from a stored seed, which is what this workflow now
 does, sidesteps the problem entirely for verification codes. For passwords
-themselves there is no route: the data is unreachable from the command line and
-the UI will not be driven.
+themselves, the attempts above did not find a working route. They did not test
+the browser-extension bridge now used by apwcli.
 
 If you find a way to make the app register a selection, the copy side was
 written and worked up to exactly that point — see the git history for

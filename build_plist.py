@@ -4,13 +4,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # Set these before publishing. GH_USER is used for the bundle ID, which must be
 # unique and is conventionally reverse-domain based on the author.
-GH_USER = os.environ.get("GH_USER", "YOUR-GITHUB-USERNAME")
-AUTHOR = os.environ.get("AUTHOR", "Your Name")
+GH_USER = os.environ.get("GH_USER", "noahyao1024")
+AUTHOR = os.environ.get("AUTHOR", "Noah Yao")
 REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.3.0")
+VERSION = os.environ.get("VERSION", "0.5.0")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -19,6 +19,12 @@ S_OTP = "A1B2C3D4-0000-0000-0000-00000000000A"
 KW_ADD = "A1B2C3D4-0000-0000-0000-00000000000B"
 S_ADD = "A1B2C3D4-0000-0000-0000-00000000000C"
 S_RM = "A1B2C3D4-0000-0000-0000-00000000000D"
+KW_PASSWORD = "A1B2C3D4-0000-0000-0000-00000000000E"
+S_PASSWORD = "A1B2C3D4-0000-0000-0000-00000000000F"
+KW_APP_OTP = "A1B2C3D4-0000-0000-0000-000000000010"
+S_APP_OTP = "A1B2C3D4-0000-0000-0000-000000000011"
+KW_PAIR = "A1B2C3D4-0000-0000-0000-000000000012"
+S_PAIR = "A1B2C3D4-0000-0000-0000-000000000013"
 
 OPT = 524288
 
@@ -80,10 +86,19 @@ objects = [
     {
         "config": {"lastpathcomponent": False, "onlyshowifquerypopulated": True,
                    "removeextension": False, "text": "{query}",
-                   "title": "Verification code"},
+                   "title": "Passwords Quick Copy"},
         "type": "alfred.workflow.output.notification", "uid": NOTIFY,
         "version": 1,
     },
+    keyword(KW_PASSWORD, "{var:passwordkeyword}", "复制 Apple Passwords 密码",
+            "输入网站域名；多个账号时在后面加用户名", argumenttype=0),
+    runscript(S_PASSWORD, '/usr/bin/python3 apple-passwords.py password "$1"'),
+    keyword(KW_APP_OTP, "{var:appleotpkeyword}", "复制 Apple Passwords 验证码",
+            "输入网站域名；验证码直接来自系统「密码」", argumenttype=0),
+    runscript(S_APP_OTP, '/usr/bin/python3 apple-passwords.py otp "$1"'),
+    keyword(KW_PAIR, "{var:pairkeyword}", "配对 Apple Passwords",
+            "在本机输入 Apple 显示的配对码", argumenttype=2),
+    runscript(S_PAIR, '/usr/bin/python3 apple-passwords.py pair'),
 ]
 
 connections = {
@@ -93,6 +108,12 @@ connections = {
     S_RM: [conn(NOTIFY)],
     KW_ADD: [conn(S_ADD)],
     S_ADD: [conn(NOTIFY)],
+    KW_PASSWORD: [conn(S_PASSWORD)],
+    S_PASSWORD: [conn(NOTIFY)],
+    KW_APP_OTP: [conn(S_APP_OTP)],
+    S_APP_OTP: [conn(NOTIFY)],
+    KW_PAIR: [conn(S_PAIR)],
+    S_PAIR: [conn(NOTIFY)],
 }
 
 uidata = {
@@ -102,10 +123,36 @@ uidata = {
     KW_ADD: {"xpos": 40, "ypos": 260},
     S_ADD: {"xpos": 300, "ypos": 260},
     NOTIFY: {"xpos": 560, "ypos": 140},
+    KW_PASSWORD: {"xpos": 40, "ypos": 400},
+    S_PASSWORD: {"xpos": 300, "ypos": 400},
+    KW_APP_OTP: {"xpos": 40, "ypos": 540},
+    S_APP_OTP: {"xpos": 300, "ypos": 540},
+    KW_PAIR: {"xpos": 40, "ypos": 680},
+    S_PAIR: {"xpos": 300, "ypos": 680},
 }
 
 # Gallery requires configuration to be exposed as Workflow Configuration.
 userconfig = [
+    {
+        "config": {"default": "pass", "placeholder": "pass", "required": True, "trim": True},
+        "description": "从系统「密码」复制密码：pass 网站域名 [用户名]。",
+        "label": "Apple Passwords keyword", "type": "textfield", "variable": "passwordkeyword",
+    },
+    {
+        "config": {"default": "pcode", "placeholder": "pcode", "required": True, "trim": True},
+        "description": "从系统「密码」复制验证码：pcode 网站域名 [用户名]。",
+        "label": "Apple verification code keyword", "type": "textfield", "variable": "appleotpkeyword",
+    },
+    {
+        "config": {"default": "pwsetup", "placeholder": "pwsetup", "required": True, "trim": True},
+        "description": "与 Apple Passwords 配对；配对码只在本机输入。",
+        "label": "Pairing keyword", "type": "textfield", "variable": "pairkeyword",
+    },
+    {
+        "config": {"default": "", "placeholder": "/opt/homebrew/bin/apwcli", "required": False, "trim": True},
+        "description": "可选。自定义 apwcli 可执行文件的完整路径。先安装：brew install michel-tricot/tap/apwcli。",
+        "label": "apwcli path", "type": "textfield", "variable": "APWCLI_PATH",
+    },
     {
         "config": {"default": "otp", "placeholder": "otp",
                    "required": True, "trim": True},
@@ -130,12 +177,30 @@ userconfig = [
 
 readme = """## Setup
 
-Nothing to set up. Seeds are kept in your login keychain, never in this \
-workflow.
+To copy directly from Apple Passwords, install apwcli once:
+
+`brew install michel-tricot/tap/apwcli`
+
+Then run `pwsetup` in Alfred and complete the local Apple PIN pairing.
+Requires a supported Chromium browser. apwcli downloads Apple's iCloud \
+Passwords extension and runs it in a dedicated background browser profile.
+It is a third-party integration, not an Apple-supported CLI.
 
 Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
+
+* `pass github.com [username]`: copy a password from Apple Passwords.
+* `pcode github.com [username]`: copy its current verification code.
+* If several accounts match, specify the username; nothing is copied until \
+the match is unique. Enter usernames literally, without shell quotes.
+
+The new commands do not expose credentials to Alfred's debugger or \
+notifications. Clipboard privacy markers request exclusion from history.
+Run `apwcli doctor` to diagnose the connection and `apwcli daemon stop` to \
+stop the helper. Re-run `pwsetup` if pairing expires.
+
+The existing standalone OTP generator needs no apwcli setup:
 
 Copy a time-based verification code for a stored account via the `otp` keyword.
 
@@ -149,8 +214,8 @@ link. Your clipboard is cleared once the seed is stored.
 The clipboard is cleared after the delay set in the Workflow’s Configuration, \
 but only if it still holds the copied value.
 
-Codes are generated locally from the stored seed (RFC 6238), so this works \
-offline and never opens the Passwords app.
+The `otp` command generates codes locally from the stored seed (RFC 6238), \
+independently of Apple Passwords. Use `pcode` for codes in Apple Passwords.
 """
 
 wf = {
@@ -159,19 +224,21 @@ wf = {
     "category": "Productivity",
     "connections": connections,
     "createdby": AUTHOR,
-    "description": "Copy a time-based verification code to the clipboard, "
-                   "generated locally from a seed in your login keychain.",
+    "description": "Copy passwords and verification codes from Apple Passwords; "
+                   "also generate codes from existing local seeds.",
     "disabled": False,
     # The name Alfred shows. The bundle ID below deliberately still says
     # passwordsquickcopy: it is invisible to users, and changing it would make
     # Alfred treat this as a brand new workflow, leaving the old one installed
     # alongside it with its own configuration.
-    "name": "Verification Codes",
+    "name": "Passwords Quick Copy",
     "objects": objects,
     "readme": readme,
     "uidata": uidata,
     "userconfigurationconfig": userconfig,
     "variables": {"otpkeyword": "otp", "otpaddkeyword": "otpadd",
+                  "passwordkeyword": "pass", "appleotpkeyword": "pcode",
+                  "pairkeyword": "pwsetup", "APWCLI_PATH": "",
                   "CLEAR_CLIPBOARD_AFTER": "45"},
     "variablesdontexport": [],
     "version": VERSION,

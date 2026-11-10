@@ -83,15 +83,93 @@
 				<false/>
 			</dict>
 		</array>
+		<key>A1B2C3D4-0000-0000-0000-00000000000E</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-00000000000F</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-00000000000F</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000006</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000010</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000011</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000011</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000006</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000012</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000013</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000013</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000006</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 	</dict>
 	<key>createdby</key>
 	<string>Noah Yao</string>
 	<key>description</key>
-	<string>Copy a time-based verification code to the clipboard, generated locally from a seed in your login keychain.</string>
+	<string>Copy passwords and verification codes from Apple Passwords; also generate codes from existing local seeds.</string>
 	<key>disabled</key>
 	<false/>
 	<key>name</key>
-	<string>Verification Codes</string>
+	<string>Passwords Quick Copy</string>
 	<key>objects</key>
 	<array>
 		<dict>
@@ -243,7 +321,7 @@
 				<key>text</key>
 				<string>{query}</string>
 				<key>title</key>
-				<string>Verification code</string>
+				<string>Passwords Quick Copy</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.output.notification</string>
@@ -252,15 +330,162 @@
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>0</integer>
+				<key>keyword</key>
+				<string>{var:passwordkeyword}</string>
+				<key>subtext</key>
+				<string>输入网站域名；多个账号时在后面加用户名</string>
+				<key>text</key>
+				<string>复制 Apple Passwords 密码</string>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-00000000000E</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>/usr/bin/python3 apple-passwords.py password "$1"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-00000000000F</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>0</integer>
+				<key>keyword</key>
+				<string>{var:appleotpkeyword}</string>
+				<key>subtext</key>
+				<string>输入网站域名；验证码直接来自系统「密码」</string>
+				<key>text</key>
+				<string>复制 Apple Passwords 验证码</string>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000010</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>/usr/bin/python3 apple-passwords.py otp "$1"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000011</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>{var:pairkeyword}</string>
+				<key>subtext</key>
+				<string>在本机输入 Apple 显示的配对码</string>
+				<key>text</key>
+				<string>配对 Apple Passwords</string>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000012</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>/usr/bin/python3 apple-passwords.py pair</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000013</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
 	</array>
 	<key>readme</key>
 	<string>## Setup
 
-Nothing to set up. Seeds are kept in your login keychain, never in this workflow.
+To copy directly from Apple Passwords, install apwcli once:
+
+`brew install michel-tricot/tap/apwcli`
+
+Then run `pwsetup` in Alfred and complete the local Apple PIN pairing.
+Requires a supported Chromium browser. apwcli downloads Apple's iCloud Passwords extension and runs it in a dedicated background browser profile.
+It is a third-party integration, not an Apple-supported CLI.
 
 Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
+
+* `pass github.com [username]`: copy a password from Apple Passwords.
+* `pcode github.com [username]`: copy its current verification code.
+* If several accounts match, specify the username; nothing is copied until the match is unique. Enter usernames literally, without shell quotes.
+
+The new commands do not expose credentials to Alfred's debugger or notifications. Clipboard privacy markers request exclusion from history.
+Run `apwcli doctor` to diagnose the connection and `apwcli daemon stop` to stop the helper. Re-run `pwsetup` if pairing expires.
+
+The existing standalone OTP generator needs no apwcli setup:
 
 Copy a time-based verification code for a stored account via the `otp` keyword.
 
@@ -271,7 +496,7 @@ Add an account by copying its secret or `otpauth://` link, then using the `otpad
 
 The clipboard is cleared after the delay set in the Workflow’s Configuration, but only if it still holds the copied value.
 
-Codes are generated locally from the stored seed (RFC 6238), so this works offline and never opens the Passwords app.
+The `otp` command generates codes locally from the stored seed (RFC 6238), independently of Apple Passwords. Use `pcode` for codes in Apple Passwords.
 </string>
 	<key>uidata</key>
 	<dict>
@@ -317,9 +542,135 @@ Codes are generated locally from the stored seed (RFC 6238), so this works offli
 			<key>ypos</key>
 			<integer>130</integer>
 		</dict>
+		<key>A1B2C3D4-0000-0000-0000-00000000000E</key>
+		<dict>
+			<key>xpos</key>
+			<integer>40</integer>
+			<key>ypos</key>
+			<integer>400</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-00000000000F</key>
+		<dict>
+			<key>xpos</key>
+			<integer>300</integer>
+			<key>ypos</key>
+			<integer>400</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000010</key>
+		<dict>
+			<key>xpos</key>
+			<integer>40</integer>
+			<key>ypos</key>
+			<integer>540</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000011</key>
+		<dict>
+			<key>xpos</key>
+			<integer>300</integer>
+			<key>ypos</key>
+			<integer>540</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000012</key>
+		<dict>
+			<key>xpos</key>
+			<integer>40</integer>
+			<key>ypos</key>
+			<integer>680</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000013</key>
+		<dict>
+			<key>xpos</key>
+			<integer>300</integer>
+			<key>ypos</key>
+			<integer>680</integer>
+		</dict>
 	</dict>
 	<key>userconfigurationconfig</key>
 	<array>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>pass</string>
+				<key>placeholder</key>
+				<string>pass</string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>从系统「密码」复制密码：pass 网站域名 [用户名]。</string>
+			<key>label</key>
+			<string>Apple Passwords keyword</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>passwordkeyword</string>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>pcode</string>
+				<key>placeholder</key>
+				<string>pcode</string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>从系统「密码」复制验证码：pcode 网站域名 [用户名]。</string>
+			<key>label</key>
+			<string>Apple verification code keyword</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>appleotpkeyword</string>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>pwsetup</string>
+				<key>placeholder</key>
+				<string>pwsetup</string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>与 Apple Passwords 配对；配对码只在本机输入。</string>
+			<key>label</key>
+			<string>Pairing keyword</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>pairkeyword</string>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string></string>
+				<key>placeholder</key>
+				<string>/opt/homebrew/bin/apwcli</string>
+				<key>required</key>
+				<false/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>可选。自定义 apwcli 可执行文件的完整路径。先安装：brew install michel-tricot/tap/apwcli。</string>
+			<key>label</key>
+			<string>apwcli path</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>APWCLI_PATH</string>
+		</dict>
 		<dict>
 			<key>config</key>
 			<dict>
@@ -386,17 +737,25 @@ Codes are generated locally from the stored seed (RFC 6238), so this works offli
 	</array>
 	<key>variables</key>
 	<dict>
+		<key>APWCLI_PATH</key>
+		<string></string>
 		<key>CLEAR_CLIPBOARD_AFTER</key>
 		<string>45</string>
+		<key>appleotpkeyword</key>
+		<string>pcode</string>
 		<key>otpaddkeyword</key>
 		<string>otpadd</string>
 		<key>otpkeyword</key>
 		<string>otp</string>
+		<key>pairkeyword</key>
+		<string>pwsetup</string>
+		<key>passwordkeyword</key>
+		<string>pass</string>
 	</dict>
 	<key>variablesdontexport</key>
 	<array/>
 	<key>version</key>
-	<string>0.4.0</string>
+	<string>0.5.0</string>
 	<key>webaddress</key>
 	<string>https://github.com/noahyao1024/alfred-verification-codes</string>
 </dict>
