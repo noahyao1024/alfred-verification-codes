@@ -32,13 +32,14 @@ def browser_binary():
 
 
 class PipeBrowser:
-    def __init__(self, profile, binary=None):
+    def __init__(self, profile, binary=None, guard=None):
         self.profile = Path(profile)
         self.binary = Path(binary) if binary else browser_binary()
         self.proc = None
         self.read_fd = self.write_fd = None
         self.buffer = b""
         self.sequence = 0
+        self.guard = guard
 
     def __enter__(self):
         self.profile.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -76,6 +77,8 @@ class PipeBrowser:
             raise
 
     def send(self, method, params=None, session=None, timeout=30):
+        if self.guard:
+            self.guard()
         self.sequence += 1
         message = {"id": self.sequence, "method": method, "params": params or {}}
         if session:
@@ -89,6 +92,8 @@ class PipeBrowser:
             raise BridgeError("浏览器连接已关闭。") from None
         deadline = time.monotonic() + timeout
         while True:
+            if self.guard:
+                self.guard()
             if b"\0" in self.buffer:
                 raw, self.buffer = self.buffer.split(b"\0", 1)
                 if not raw:
@@ -103,8 +108,10 @@ class PipeBrowser:
                     raise BridgeError("浏览器拒绝操作；当前版本可能不支持该接口。")
                 return reply.get("result", {})
             remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([self.read_fd], [], [], remaining)[0]:
+            if remaining <= 0:
                 raise BridgeError("等待浏览器响应超时。")
+            if not select.select([self.read_fd], [], [], min(remaining, 0.25))[0]:
+                continue
             chunk = os.read(self.read_fd, 65536)
             if not chunk:
                 raise BridgeError("浏览器连接已关闭。")
@@ -121,6 +128,7 @@ class PipeBrowser:
         return result.get("result", {}).get("value")
 
     def close(self):
+        guard, self.guard = self.guard, None  # shutdown must still work after a lock/expiry
         try:
             if self.proc is not None and self.proc.poll() is None:
                 try:
@@ -142,6 +150,7 @@ class PipeBrowser:
                     os.close(fd)
             self.read_fd = self.write_fd = None
             self.buffer = b""
+            self.guard = guard
 
     def __exit__(self, *exc):
         self.close()

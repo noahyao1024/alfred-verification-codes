@@ -1,1 +1,1 @@
-"""Short-lived Apple Passwords sessions; no daemon or listening socket."""
+"""Bounded Apple Passwords sessions with private browser pipes and copy-only IPC."""

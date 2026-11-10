@@ -1,4 +1,4 @@
-"""One authenticated operation, with browser teardown before returning a secret."""
+"""An owned browser session with a scope that is cleared between reads."""
 
 import json
 from pathlib import Path
@@ -13,11 +13,12 @@ from .extension import EXTENSION_ID, NATIVE_MANIFEST, data_dir, prepare
 
 
 class PasswordSession:
-    def __init__(self, domain, username="", mode="password"):
+    def __init__(self, domain, username="", mode="password", guard=None):
         self.domain, self.username = domain, username
         if mode not in ("password", "otp"):
             raise BridgeError("不支持的读取类型。")
         self.mode = mode
+        self.guard = guard
         self.temporary = self.browser = self.worker = None
 
     def __enter__(self):
@@ -32,7 +33,7 @@ class PasswordSession:
             hosts = profile / "NativeMessagingHosts"
             hosts.mkdir(mode=0o700, parents=True)
             shutil.copyfile(NATIVE_MANIFEST, hosts / "com.apple.passwordmanager.json")
-            self.browser = PipeBrowser(profile)
+            self.browser = PipeBrowser(profile, guard=self.guard)
             self.browser.__enter__()
             result = self.browser.send("Extensions.loadUnpacked", {"path": str(extension)})
             if result.get("id") != EXTENSION_ID:
@@ -52,8 +53,7 @@ class PasswordSession:
                 raise BridgeError("密码扩展没有启动。")
             while time.monotonic() < deadline:
                 if self.evaluate("typeof globalThis.__passwordsBridge === 'object'"):
-                    scope = json.dumps({"domain": self.domain, "username": self.username, "operation": self.mode})
-                    self.evaluate("Object.assign(globalThis.__passwordsConfig," + scope + "); true")
+                    self.set_scope(self.domain, self.username, self.mode)
                     return self
                 time.sleep(0.1)
             raise BridgeError("密码扩展桥接初始化超时。")
@@ -65,7 +65,19 @@ class PasswordSession:
         return self.browser.evaluate(expression, self.worker)
 
     def state(self):
-        return self.evaluate("globalThis.__passwordsBridge.state()")
+        # A wedged keepalive must not hold up the broker's control endpoint for 30s.
+        return self.browser.evaluate("globalThis.__passwordsBridge.state()", self.worker, timeout=3)
+
+    def set_scope(self, domain, username, mode):
+        if mode not in ('password', 'otp'):
+            raise BridgeError('不支持的读取类型。')
+        self.domain, self.username, self.mode = domain, username, mode
+        scope = json.dumps({'domain': domain, 'username': username, 'operation': mode})
+        self.evaluate('Object.assign(globalThis.__passwordsConfig,' + scope + '); true')
+
+    def clear_scope(self):
+        self.evaluate('Object.assign(globalThis.__passwordsConfig,{domain:"",username:"",operation:""}); true')
+        self.domain = self.username = ''
 
     def request(self, message):
         return self.evaluate("globalThis.__passwordsBridge.request(" + json.dumps(message) + ")")
@@ -94,7 +106,7 @@ class PasswordSession:
             pin = None
 
     def prompt_pin(self):
-        script = '''set answer to display dialog "输入 Apple 系统窗口显示的六位配对码。仅用于本次复制，结束后关闭会话。" default answer "" with hidden answer with title "Passwords Quick Copy" buttons {"取消", "继续"} default button "继续" cancel button "取消" giving up after 90
+        script = '''set answer to display dialog "输入 Apple 系统窗口显示的六位配对码。会话将在空闲超时、锁屏或手动锁定后关闭。" default answer "" with hidden answer with title "Passwords Quick Copy" buttons {"取消", "继续"} default button "继续" cancel button "取消" giving up after 90
 if gave up of answer then return ""
 return text returned of answer'''
         dialog = subprocess.Popen(["/usr/bin/osascript", "-e", script], stdin=subprocess.DEVNULL,
@@ -137,6 +149,10 @@ return text returned of answer'''
                 self.temporary.cleanup()
 
 
+class CredentialLookupError(BridgeError):
+    """A valid paired session may be retained after an empty/ambiguous lookup."""
+
+
 def select_secret(response, mode, username):
     if not isinstance(response, dict):
         raise BridgeError("Apple Passwords 返回格式无效。")
@@ -149,7 +165,7 @@ def select_secret(response, mode, username):
     if status == 9:
         raise BridgeError("Apple 配对已失效，请重试。")
     if status == 3:
-        raise BridgeError("未找到匹配的密码或验证码。")
+        raise CredentialLookupError("未找到匹配的密码或验证码。")
     if status != 0:
         raise BridgeError("Apple Passwords 读取失败；未输出原始响应。")
     entries = data.get("Entries")
@@ -168,9 +184,9 @@ def select_secret(response, mode, username):
         if isinstance(value, str) and value and value != "Not Included":
             candidates.append(value)
     if not candidates:
-        raise BridgeError("未找到匹配的密码或验证码。")
+        raise CredentialLookupError("未找到匹配的密码或验证码。")
     if len(candidates) != 1:
-        raise BridgeError("匹配到多个账号，尚未复制。请在网站域名后补充用户名。")
+        raise CredentialLookupError("匹配到多个账号，尚未复制。请在网站域名后补充用户名。")
     return candidates[0]
 
 

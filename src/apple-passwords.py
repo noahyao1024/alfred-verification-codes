@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy through one private browser session; expose neither a daemon nor TCP."""
+"""Copy through a bounded local session; no credentials returned over IPC."""
 
 import os
 from pathlib import Path
@@ -11,9 +11,8 @@ from urllib.parse import urlsplit
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))  # -I ignores user Python paths; only our bundled modules are added.
 from passwords_bridge.browser import BridgeError
-from passwords_bridge.clipboard import copy_secret
+from passwords_bridge.client import request_copy, lock_session
 from passwords_bridge.extension import setup
-from passwords_bridge.session import read_secret
 
 
 def parse_query(query):
@@ -48,20 +47,30 @@ def clear_seconds():
         raise BridgeError("Clear clipboard after 必须为 0–86400 的整数；0 表示不自动清空。") from None
 
 
+def idle_seconds():
+    try:
+        value = int(os.environ.get('SESSION_IDLE_SECONDS', '300'))
+        if not 30 <= value <= 1800:
+            raise ValueError
+        return value
+    except ValueError:
+        raise BridgeError('会话空闲时长必须为 30–1800 秒，默认 300 秒。') from None
+
+
 def run(mode, query):
-    if mode not in ("password", "otp", "pair"):
+    if mode not in ("password", "otp", "pair", "lock"):
         raise BridgeError("不支持的操作。")
     if mode == "pair":
         setup()
-        return True, "扩展已准备。使用 pass 或 pcode 时完成本次 Apple 配对，复制结束即关闭会话。"
+        return True, "扩展已准备。首次复制时配对，会话内可连续复制；pwlock 可立即锁定。"
+    if mode == 'lock':
+        result = lock_session()
+        return result['ok'], result['message']
     site, username = parse_query(query)
     seconds = clear_seconds()
-    value = None
-    try:
-        value = read_secret(mode, site, username)  # browser is closed before this returns
-        copy_secret(value, seconds)
-    finally:
-        value = None
+    result = request_copy(mode, site, username, seconds, idle_seconds())
+    if not result['ok']:
+        return False, result['message']
     noun = "密码" if mode == "password" else "验证码"
     suffix = f"；{seconds} 秒后在内容未改变时清空" if seconds else ""
     return True, f"{noun}已复制{suffix}。"
@@ -70,8 +79,11 @@ def run(mode, query):
 def main(argv=None):
     args = sys.argv[1:] if argv is None else argv
     try:
+        if args == ['--serve']:
+            from passwords_bridge.broker import serve
+            return serve()
         if not args:
-            raise BridgeError("用法：apple-passwords.py password|otp|pair [网站域名 用户名]")
+            raise BridgeError("用法：apple-passwords.py password|otp|pair|lock [网站域名 用户名]")
         ok, message = run(args[0], args[1] if len(args) > 1 else "")
     except BridgeError as exc:
         ok, message = False, str(exc)

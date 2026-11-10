@@ -8,11 +8,96 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
+import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from passwords_bridge.browser import PipeBrowser
 from passwords_bridge.session import PasswordSession
+from passwords_bridge.screen import LockMonitor
+from passwords_bridge.broker import SessionManager, SessionExpired
+
+
+def notify_private(name):
+    source = 'ObjC.import("AppKit"); $.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately($("' + name + '"),$(),$(),true);'
+    subprocess.run(['/usr/bin/osascript', '-l', 'JavaScript', '-e', source], check=True, capture_output=True)
+
+
+class SyntheticCredentials(PasswordSession):
+    """Real browser/extension; synthetic auth/data, never calls the Apple helper."""
+    paired_fixture = False
+    pair_count = 0
+    block_read = False
+    def state(self):
+        super().state()  # exercise the live pipe/worker, without authorizing it
+        return {'paired': self.paired_fixture}
+    def pair(self):
+        self.pair_count += 1
+        self.paired_fixture = True
+    def read(self, mode):
+        if self.block_read:
+            self.evaluate('new Promise(function () {})')
+        return 'SYNTHETIC-CREDENTIAL'
+
+
+def fixture_request(mode='password'):
+    return {'op': 'copy', 'mode': mode, 'domain': 'example.invalid', 'username': 'fixture-user',
+            'clear_after': 0, 'idle_seconds': 300}
+
+
+class NativeReuseTests(unittest.TestCase):
+    def setUp(self):
+        self.name = 'com.noah.passwords.test.' + uuid.uuid4().hex
+        self.monitor = LockMonitor(self.name)
+        # The test must work even while the owner is away/locked. Only the snapshot
+        # is simulated; real notifications remain active and all credentials are fake.
+        self.monitor.snapshot = type('FixtureConsole', (), {'blocked': lambda self: False})()
+        self.copies = []
+        self.manager = SessionManager(self.monitor, SyntheticCredentials,
+                                      lambda value, delay: self.copies.append(value))
+    def tearDown(self):
+        self.manager.close_session()
+        self.monitor.close()
+
+    def test_same_browser_is_reused_then_native_notification_closes_it(self):
+        self.manager.copy(fixture_request())
+        owned = self.manager.session
+        child, directory = owned.browser.proc, Path(owned.temporary.name)
+        self.manager.copy(fixture_request('otp'))
+        self.assertIs(self.manager.session, owned)
+        self.assertEqual(owned.pair_count, 1)
+        self.assertEqual(len(self.copies), 2)
+        listeners = subprocess.run(['/usr/sbin/lsof', '-nP', '-a', '-p', str(child.pid),
+                                    '-iTCP', '-sTCP:LISTEN'], capture_output=True)
+        self.assertEqual(listeners.returncode, 1)
+        self.assertFalse(listeners.stdout)
+        notify_private(self.name)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            try: self.manager.tick()
+            except SessionExpired: break
+            time.sleep(.05)
+        self.assertTrue(self.manager.expired)
+        self.assertIsNotNone(child.poll())
+        self.assertFalse(directory.exists())
+
+    def test_native_notification_interrupts_a_pending_browser_read(self):
+        self.manager.copy(fixture_request())
+        owned = self.manager.session
+        child = owned.browser.proc
+        owned.block_read = True
+        self.copies.clear()
+        timer = threading.Timer(.25, notify_private, args=(self.name,))
+        timer.start()
+        try:
+            with self.assertRaises(SessionExpired): self.manager.copy(fixture_request('otp'))
+        finally:
+            timer.join(timeout=3)
+        self.assertFalse(timer.is_alive())
+        self.assertEqual(self.copies, [])
+        self.assertIsNotNone(child.poll())
 
 
 class NativeBridgeTests(unittest.TestCase):

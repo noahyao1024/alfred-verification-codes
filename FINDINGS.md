@@ -1,5 +1,10 @@
 # Earlier Passwords UI automation findings
 
+Update for 0.7.0: sessions are now reused for a bounded interval to avoid pairing
+on every copy. Browser control remains on anonymous pipes. A token-protected,
+copy-only local Unix socket is now used between Alfred and the bounded broker;
+see [SECURITY.md](SECURITY.md) for the revised trust boundary.
+
 Update for 0.6.0: the protocol bridge is now bundled under its MIT license.
 Browser control uses inherited CDP pipes and each copy tears down its session;
 the apwcli daemon and its TCP debugging endpoint are no longer used. See

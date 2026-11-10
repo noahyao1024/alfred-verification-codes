@@ -161,6 +161,32 @@
 				<false/>
 			</dict>
 		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000014</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000015</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000015</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000006</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 	</dict>
 	<key>createdby</key>
 	<string>Noah Yao</string>
@@ -462,6 +488,50 @@
 			<key>version</key>
 			<integer>2</integer>
 		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>{var:lockkeyword}</string>
+				<key>subtext</key>
+				<string>关闭已配对会话，下次复制时重新配对</string>
+				<key>text</key>
+				<string>锁定密码会话</string>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000014</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>/usr/bin/python3 -I apple-passwords.py lock</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000015</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
 	</array>
 	<key>readme</key>
 	<string>## Setup
@@ -473,12 +543,16 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
-* `pass github.com [username]`: pair for this operation, then copy a password.
-* `pcode github.com [username]`: pair for this operation, then copy its current code.
+* `pass github.com [username]`: copy a password, pairing only when needed.
+* `pcode github.com [username]`: copy its current code in the same active session.
+* `pwlock`: close the active session immediately.
 * If several accounts match, specify the username; nothing is copied until the match is unique. Enter usernames literally, without shell quotes.
 
 The new commands do not expose credentials to Alfred's debugger or notifications. Clipboard privacy markers request exclusion from history.
-Each operation owns a separate browser and anonymous CDP pipes. There is no daemon socket or TCP debugging listener. The browser closes before the secret is copied, so the next operation requires a new Apple pairing. This trades convenience for a shorter authorization lifetime.
+The first copy starts a short-lived session. Pairing is reused until 5 minutes of inactivity by default, screen lock, sleep/session switch, manual pwlock, or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
+The idle timeout is configurable. A later copy starts a fresh session.
+
+The copy-only broker uses a mode-0600 Unix socket and a per-session token in a mode-0700 directory. Passwords never travel back to Alfred over that socket. Browser control still uses anonymous CDP pipes, with no TCP debugging port. These controls do not authenticate Alfred as a unique application or protect against a compromised macOS user account.
 
 The Apple extension is still modified to carry the bridge. A compromised Mac or modified workflow can still access secrets; this is not an independent security audit.
 
@@ -581,6 +655,20 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 			<key>ypos</key>
 			<integer>680</integer>
 		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000014</key>
+		<dict>
+			<key>xpos</key>
+			<integer>40</integer>
+			<key>ypos</key>
+			<integer>820</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000015</key>
+		<dict>
+			<key>xpos</key>
+			<integer>300</integer>
+			<key>ypos</key>
+			<integer>820</integer>
+		</dict>
 	</dict>
 	<key>userconfigurationconfig</key>
 	<array>
@@ -639,13 +727,55 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 				<true/>
 			</dict>
 			<key>description</key>
-			<string>准备固定版本扩展。每次复制时完成独立 Apple 配对，结束后关闭会话。</string>
+			<string>准备固定版本扩展。首次复制时配对，有效会话内可连续复制。</string>
 			<key>label</key>
 			<string>Setup keyword</string>
 			<key>type</key>
 			<string>textfield</string>
 			<key>variable</key>
 			<string>pairkeyword</string>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>pwlock</string>
+				<key>placeholder</key>
+				<string>pwlock</string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>立即关闭配对会话；下次复制时重新配对。</string>
+			<key>label</key>
+			<string>Lock keyword</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>lockkeyword</string>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>300</string>
+				<key>placeholder</key>
+				<string>300</string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>空闲多少秒后关闭会话，范围 30–1800。锁屏时也会关闭；单次会话最长 30 分钟。</string>
+			<key>label</key>
+			<string>Session idle timeout (seconds)</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>SESSION_IDLE_SECONDS</string>
 		</dict>
 		<dict>
 			<key>config</key>
@@ -715,8 +845,12 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 	<dict>
 		<key>CLEAR_CLIPBOARD_AFTER</key>
 		<string>45</string>
+		<key>SESSION_IDLE_SECONDS</key>
+		<string>300</string>
 		<key>appleotpkeyword</key>
 		<string>pcode</string>
+		<key>lockkeyword</key>
+		<string>pwlock</string>
 		<key>otpaddkeyword</key>
 		<string>otpadd</string>
 		<key>otpkeyword</key>
@@ -729,7 +863,7 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 	<key>variablesdontexport</key>
 	<array/>
 	<key>version</key>
-	<string>0.6.0</string>
+	<string>0.7.0</string>
 	<key>webaddress</key>
 	<string>https://github.com/noahyao1024/alfred-verification-codes</string>
 </dict>

@@ -39,9 +39,16 @@ function fixture(operation = 'password') {
     assert.equal(f.count(), 0);
     assert.equal((await f.request(pw)).data.Entries[0].PWD, 'FAKE-only');
     assert.equal(f.count(), 1);
+    f.context.__passwordsConfig.domain = '';
+    assert.equal((await f.request(pw)).status, 2);
+    f.context.__passwordsConfig.domain = 'example.com';
+    f.context.__passwordsConfig.operation = 'otp';
+    assert.equal((await f.request(pw)).status, 2);
+    assert.equal((await f.request(otp)).data.STATUS, 0);
+    f.context.__passwordsConfig.operation = 'password';
     f.context.g_theState = 'NotInSession';
     assert.equal((await f.request(pw)).status, 9);
-    assert.equal(f.count(), 1);
+    assert.equal(f.count(), 2);
     const code = fixture('otp');
     assert.equal((await code.request(pw)).status, 2);
     assert.equal((await code.request(otp)).data.STATUS, 0);

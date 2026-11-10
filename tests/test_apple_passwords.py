@@ -41,37 +41,47 @@ class QueryTests(unittest.TestCase):
 class FrontendTests(unittest.TestCase):
     def test_no_secret_in_notification(self):
         for mode in ("password", "otp"):
-            with patch.object(app, "read_secret", return_value="FAKE-SECRET") as read, \
-                 patch.object(app, "copy_secret") as copy, patch.dict(os.environ, {"CLEAR_CLIPBOARD_AFTER": "45"}):
+            with patch.object(app, "request_copy", return_value={'ok': True, 'message': 'copied'}) as request, \
+                 patch.dict(os.environ, {"CLEAR_CLIPBOARD_AFTER": "45", 'SESSION_IDLE_SECONDS': '300'}):
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output):
                     status = app.main([mode, "example.com --show literal user"])
             self.assertEqual(status, 0)
-            read.assert_called_once_with(mode, "example.com", "--show literal user")
-            copy.assert_called_once_with("FAKE-SECRET", 45)
+            request.assert_called_once_with(mode, "example.com", "--show literal user", 45, 300)
             self.assertNotIn("FAKE-SECRET", output.getvalue())
 
     def test_unexpected_exception_text_is_not_forwarded(self):
         for error in (ValueError("FAKE-SECRET"), RuntimeError("FAKE-SECRET")):
-            with patch.object(app, "read_secret", side_effect=error), patch.object(app, "copy_secret") as copy:
+            with patch.object(app, "request_copy", side_effect=error):
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output):
                     status = app.main(["password", "example.com"])
             self.assertEqual(status, 1)
             self.assertNotIn("FAKE-SECRET", output.getvalue())
-            copy.assert_not_called()
 
     def test_setup_does_not_pair_or_read_credentials(self):
-        with patch.object(app, "setup") as prepare, patch.object(app, "read_secret") as read:
+        with patch.object(app, "setup") as prepare, patch.object(app, "request_copy") as read:
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(app.main(["pair"]), 0)
             prepare.assert_called_once()
             read.assert_not_called()
 
     def test_invalid_mode_never_starts_session(self):
-        with patch.object(app, "read_secret") as read, contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(app, "request_copy") as read, contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(app.main(["save", "example.com"]), 1)
             read.assert_not_called()
+
+    def test_manual_lock_does_not_start_or_read_a_session(self):
+        with patch.object(app, 'lock_session', return_value={'ok': True, 'message': 'locked'}) as lock, \
+             patch.object(app, 'request_copy') as copy, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(app.main(['lock']), 0)
+            lock.assert_called_once()
+            copy.assert_not_called()
+
+    def test_idle_configuration_rejects_unbounded_values(self):
+        for value in ('0', '-1', '1801', 'forever'):
+            with patch.dict(os.environ, {'SESSION_IDLE_SECONDS': value}), self.assertRaises(BridgeError):
+                app.idle_seconds()
 
     def test_context_closes_before_secret_returns(self):
         events = []

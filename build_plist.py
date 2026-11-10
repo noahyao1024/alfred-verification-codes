@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.6.0")
+VERSION = os.environ.get("VERSION", "0.7.0")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -25,6 +25,8 @@ KW_APP_OTP = "A1B2C3D4-0000-0000-0000-000000000010"
 S_APP_OTP = "A1B2C3D4-0000-0000-0000-000000000011"
 KW_PAIR = "A1B2C3D4-0000-0000-0000-000000000012"
 S_PAIR = "A1B2C3D4-0000-0000-0000-000000000013"
+KW_LOCK = "A1B2C3D4-0000-0000-0000-000000000014"
+S_LOCK = "A1B2C3D4-0000-0000-0000-000000000015"
 
 OPT = 524288
 
@@ -99,6 +101,9 @@ objects = [
     keyword(KW_PAIR, "{var:pairkeyword}", "准备 Apple Passwords 扩展",
             "下载并校验固定版本；复制时再进行本次配对", argumenttype=2),
     runscript(S_PAIR, '/usr/bin/python3 -I apple-passwords.py pair'),
+    keyword(KW_LOCK, "{var:lockkeyword}", "锁定密码会话",
+            "关闭已配对会话，下次复制时重新配对", argumenttype=2),
+    runscript(S_LOCK, '/usr/bin/python3 -I apple-passwords.py lock'),
 ]
 
 connections = {
@@ -114,6 +119,8 @@ connections = {
     S_APP_OTP: [conn(NOTIFY)],
     KW_PAIR: [conn(S_PAIR)],
     S_PAIR: [conn(NOTIFY)],
+    KW_LOCK: [conn(S_LOCK)],
+    S_LOCK: [conn(NOTIFY)],
 }
 
 uidata = {
@@ -129,6 +136,8 @@ uidata = {
     S_APP_OTP: {"xpos": 300, "ypos": 540},
     KW_PAIR: {"xpos": 40, "ypos": 680},
     S_PAIR: {"xpos": 300, "ypos": 680},
+    KW_LOCK: {"xpos": 40, "ypos": 820},
+    S_LOCK: {"xpos": 300, "ypos": 820},
 }
 
 # Gallery requires configuration to be exposed as Workflow Configuration.
@@ -145,8 +154,18 @@ userconfig = [
     },
     {
         "config": {"default": "pwsetup", "placeholder": "pwsetup", "required": True, "trim": True},
-        "description": "准备固定版本扩展。每次复制时完成独立 Apple 配对，结束后关闭会话。",
+        "description": "准备固定版本扩展。首次复制时配对，有效会话内可连续复制。",
         "label": "Setup keyword", "type": "textfield", "variable": "pairkeyword",
+    },
+    {
+        "config": {"default": "pwlock", "placeholder": "pwlock", "required": True, "trim": True},
+        "description": "立即关闭配对会话；下次复制时重新配对。",
+        "label": "Lock keyword", "type": "textfield", "variable": "lockkeyword",
+    },
+    {
+        "config": {"default": "300", "placeholder": "300", "required": True, "trim": True},
+        "description": "空闲多少秒后关闭会话，范围 30–1800。锁屏时也会关闭；单次会话最长 30 分钟。",
+        "label": "Session idle timeout (seconds)", "type": "textfield", "variable": "SESSION_IDLE_SECONDS",
     },
     {
         "config": {"default": "otp", "placeholder": "otp",
@@ -180,17 +199,24 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
-* `pass github.com [username]`: pair for this operation, then copy a password.
-* `pcode github.com [username]`: pair for this operation, then copy its current code.
+* `pass github.com [username]`: copy a password, pairing only when needed.
+* `pcode github.com [username]`: copy its current code in the same active session.
+* `pwlock`: close the active session immediately.
 * If several accounts match, specify the username; nothing is copied until \
 the match is unique. Enter usernames literally, without shell quotes.
 
 The new commands do not expose credentials to Alfred's debugger or \
 notifications. Clipboard privacy markers request exclusion from history.
-Each operation owns a separate browser and anonymous CDP pipes. There is no \
-daemon socket or TCP debugging listener. The browser closes before the secret \
-is copied, so the next operation requires a new Apple pairing. This trades \
-convenience for a shorter authorization lifetime.
+The first copy starts a short-lived session. Pairing is reused until 5 minutes \
+of inactivity by default, screen lock, sleep/session switch, manual pwlock, \
+or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
+The idle timeout is configurable. A later copy starts a fresh session.
+
+The copy-only broker uses a mode-0600 Unix socket and a per-session token in a \
+mode-0700 directory. Passwords never travel back to Alfred over that socket. \
+Browser control still uses anonymous CDP pipes, with no TCP debugging port. \
+These controls do not authenticate Alfred as a unique application or protect \
+against a compromised macOS user account.
 
 The Apple extension is still modified to carry the bridge. A compromised Mac \
 or modified workflow can still access secrets; this is not an independent security audit.
@@ -233,7 +259,7 @@ wf = {
     "userconfigurationconfig": userconfig,
     "variables": {"otpkeyword": "otp", "otpaddkeyword": "otpadd",
                   "passwordkeyword": "pass", "appleotpkeyword": "pcode",
-                  "pairkeyword": "pwsetup",
+                  "pairkeyword": "pwsetup", "lockkeyword": "pwlock", "SESSION_IDLE_SECONDS": "300",
                   "CLEAR_CLIPBOARD_AFTER": "45"},
     "variablesdontexport": [],
     "version": VERSION,

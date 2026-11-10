@@ -13,10 +13,12 @@ to download the pinned iCloud Passwords extension. No apwcli/chauffeur install
 is required. This edition uses Python 3.9+ and its standard library (available
 on this development Mac through Command Line Tools).
 
-Each `pass` / `pcode` operation asks for a fresh Apple pairing. Enter the PIN
-shown by macOS into the local dialog. The owned browser closes before the
-credential is placed on the clipboard. This deliberately costs more interaction
-than retaining a paired daemon between requests.
+The first `pass` / `pcode` operation asks for Apple pairing. Enter the PIN shown
+by macOS into the local dialog; subsequent password and OTP copies reuse that
+session while it remains valid. By default, 5 minutes without a copy closes it.
+Screen lock, sleep/user switching, `pwlock`, or a 30-minute maximum lifetime also
+close the session. Apple can invalidate its pairing earlier, in which case the
+next operation pairs again. This replaces 0.6's pairing on every copy.
 
 This requires Alfred Powerpack and a supported Chromium browser (Chrome, Brave,
 Edge, or Chromium) and Apple's browser helper. Setup accepts only the pinned
@@ -39,6 +41,7 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 | `pcode github.com` | Copy the unique matching current verification code |
 | `pcode github.com me@example.com` | Copy the code for this username |
 | `pwsetup` | Prepare and verify the pinned official extension |
+| `pwlock` | Close the current session without starting a new one |
 | `otp` / `otpadd` | Use the existing, separate local seed store |
 
 When more than one account matches, nothing is copied; add the username. The
@@ -46,15 +49,21 @@ username is literal text (spaces are allowed); do not add shell quotes. A full
 http/https URL may replace the domain; only its hostname is used. Apple's helper matches
 by registrable domain, so subdomains can return the same set of accounts.
 
-`pass` and `pcode` use an inherited anonymous CDP pipe, a private temporary profile,
-and a single paired operation. There is no password-service socket or TCP
-debugging listener. Neither
-passwords nor codes are returned to Alfred's debugger or notifications. They
+`pass` and `pcode` connect to a short-lived, copy-only broker. It owns the private
+browser profile and anonymous CDP pipes; no TCP debugging listener is opened.
+The broker's Unix socket requires the same OS user and a per-session token in a
+private directory. It copies within the broker and returns only a status, never
+passwords or codes, to Alfred. Credentials also stay out of notifications and debugging. They
 receive clipboard privacy markers used by Alfred and other compliant history
 managers; applications that ignore these markers may still record the clipboard.
 The existing clear delay applies (45 seconds by default, `0` disables it).
 The cleanup helper holds only a pasteboard change counter, never the secret;
 a subsequent copy, even of identical text, is preserved.
+
+Set `SESSION_IDLE_SECONDS` in Workflow Configuration to change the idle timeout
+(30–1800 seconds, default 300). Keep-alive and status checks do not extend it.
+Copies refresh the idle timer; the 30-minute lifetime cap still applies. A typo
+or ambiguous account can be corrected within the same pairing session.
 
 These commands read Apple Passwords; they do not list the whole vault or edit
 credentials. The original local-seed commands below remain separate.
@@ -127,8 +136,10 @@ python3 build_plist.py  # regenerate info.plist only
 
 After `pwsetup`, run `/usr/bin/python3 tests/check_native_bridge.py` for explicit
 Chrome/extension checks. These verify pipe transport, absence of a TCP listener,
-rejection of writes/out-of-scope requests, unpaired rejection, and teardown.
-They do not prompt for a PIN or retrieve credentials. Node, when installed, is
+request restrictions, reuse of the actual browser with synthetic credentials,
+native notification delivery, interruption, and teardown. The notification tests
+use a private test notification instead of locking the user's screen. They do
+not prompt for a PIN or retrieve credentials. Node, when installed, is
 used only for the JavaScript policy development test; it is not a runtime dependency.
 
 The build fails if the RFC 6238 vectors stop matching. That guard exists because
@@ -137,15 +148,25 @@ this shipped once with a generator that had never been verified.
 ## Troubleshooting
 
 If upgrading from 0.5, stop the old service once with `apwcli daemon stop`.
-The new workflow neither connects to it nor restarts it. Setup data is stored in
-`~/Library/Application Support/Passwords Quick Copy`; only the pinned extension
-archive is retained between normal runs. Cancelled/failed normal operations close
-the browser and remove its temporary profile. A force-killed process can leave
-temporary files, though closing its command pipe also makes Chrome exit.
+The new workflow neither connects to it nor restarts it. Its own bounded session
+broker starts only when a copy is requested. Use `pwlock` to stop it. Setup and
+runtime files live under `~/Library/Application Support/Passwords Quick Copy`:
+the pinned extension, a mode-0600 `session.json` (PID/token while running), the
+mode-0600 socket, and `session.log`. Logs contain fixed lifecycle events only,
+never account names, PINs, passwords, or request bodies.
+
+On timeout/lock/shutdown, the broker closes its browser and removes the session
+socket, token, and temporary browser profile. A force-killed process can leave
+temporary files; closing its command pipe still makes Chrome exit. The monitor
+exits if its broker parent dies. Stale runtime state is replaced under a singleton
+lock on the next start. No login service is installed.
 
 If setup reports a hash mismatch, do not bypass it: a compatible workflow update
-is needed. Dismissing a PIN dialog cancels the copy. A lost pairing requires
-retrying the copy, not a persistent pairing setup step.
+is needed. Dismissing a PIN dialog cancels the copy and discards that browser
+session. If startup is refused, unlock the Mac; the broker refuses to open a
+session when the console is locked/inactive or lock monitoring is unavailable.
+An uncertain connection result is not retried automatically; check the clipboard
+before repeating the command.
 
 With multiple accounts, append the username. With no verification code, check
 that the matching Apple Passwords entry has a code configured. The new commands
@@ -157,7 +178,8 @@ This workflow started out trying to copy passwords directly from Apple's
 Passwords app's UI. That approach failed; the observations are recorded in
 [FINDINGS.md](FINDINGS.md). The new `pass` / `pcode` commands use the browser
 extension bridge instead of UI scripting. Version 0.6 replaces the 0.5 apwcli
-daemon integration with a restricted one-operation backend. See
+daemon integration with a restricted one-operation backend; 0.7 adds bounded
+session reuse to avoid pairing for every copy. See
 [使用说明.md](使用说明.md) and [SECURITY.md](SECURITY.md) for usage and the explicit limits.
 Third-party code and licensing are recorded in [THIRD_PARTY_NOTICES.md](src/THIRD_PARTY_NOTICES.md).
 

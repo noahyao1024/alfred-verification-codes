@@ -1,7 +1,7 @@
 // Adapted from apwlib 0.1.2; Copyright (c) 2026 Michel Tricot, MIT.
 // See THIRD_PARTY_NOTICES.md. Apple's SecretSession performs SRP/SMSG crypto.
 // The parent calls this bridge through its private CDP pipe. Only pairing and
-// the selected read operation are allowed; there is no daemon or worker channel.
+// the selected read operation are allowed; no shared browser debugging endpoint exists.
 
 (function apwBridge() {
   "use strict";
@@ -156,7 +156,7 @@
   }
 
   // These functions are reachable only within the extension worker. The owner
-  // invokes them through the inherited pipe and closes the browser after one read.
+  // invokes them through the inherited pipe and clears scope after each read.
   globalThis.__passwordsBridge = Object.freeze({state: readState, request: request});
 
   // The parent polls state while the bounded PIN dialog is open.
