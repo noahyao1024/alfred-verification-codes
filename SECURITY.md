@@ -1,10 +1,10 @@
-# Security scope of version 0.8.1
+# Security scope of version 0.8.2
 
 This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.8.1 behavior |
+| Boundary | Version 0.8.2 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
 | Session lifetime | 5 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
@@ -25,13 +25,17 @@ needs a more specific username can retain pairing. Cancelled pairing, protocol
 failure, or a disconnected browser discards that browser. Apple can invalidate
 pairing independently; the next copy must pair again.
 
-The unified login flow holds the current query results only in broker memory
-while the user chooses an account. It copies the password first and requires a
-separate user action before replacing it with an OTP. Discovery uses metadata-only
-OTP listing; the selected code value is read after confirmation, once for a unique
-factor. An unsupported metadata API only falls back to value queries on explicit
-OTP access or when no passwords exist. No biometric check is disabled, and no
-claim is made about how many system Touch ID prompts Apple will show.
+The unified login flow queries account metadata first (`cmd 4` for login names
+and `cmd 16` for OTP metadata), which does not trigger macOS Touch ID. Only the
+selected account's password is read via `cmd 5` after selection (or immediately
+for a bound password alias), and once read it is cached in broker memory for the
+duration of the active session (cleared on idle expiry, screen lock, sleep,
+session invalidation, or `pwlock`) so repeated copies of the same account or
+switching back from OTP do not re-trigger Touch ID. A Refresh Password action in
+the floating window forces a fresh `cmd 5` read when a password was rotated.
+Binding an alias (`pass alias add`) or cancelling the picker performs zero
+secret reads. OTP values remain time-dependent and are read on demand after
+confirmation, once per copy/refresh. No biometric check is disabled.
 OTP matching never falls back to another username; broader-domain or multiple
 matches require explicit selection. Indistinguishable metadata duplicates are
 refused, as the protocol does not provide a stable identifier we can rely on.

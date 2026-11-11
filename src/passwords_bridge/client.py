@@ -78,8 +78,8 @@ def request_login(domain, username, alias, save_alias, clear_after, idle_seconds
                               'idle_seconds': idle_seconds, 'display': display, 'display_seconds': display_seconds})
     try:
         info = metadata(data_dir())
-        if not info.get('interactive') or not info.get('lazy_otp'):
-            result = lock_session()  # retire a pre-0.8 broker before sending a new operation
+        if not info.get('interactive') or not info.get('lazy_otp') or not info.get('lazy_passwords') or not info.get('credential_cache'):
+            result = lock_session()  # retire an older broker before sending a new operation
             if not result['ok']:
                 return result
     except Unavailable:

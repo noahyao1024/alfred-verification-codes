@@ -38,11 +38,17 @@ PASSWORDS = [
 class CatalogSession(FakeSession):
     passwords = PASSWORDS
     codes = [{'username': 'alice', 'domain': 'example.com', 'code': '111111'}]
+    password_queries = 0
+    password_metadata_queries = 0
     otp_queries = 0
     otp_metadata_queries = 0
     def entries(self, kind):
         user = self.scope[1]
+        if kind == 'password_list':
+            self.password_metadata_queries += 1
+            return [dict(row, PWD='Not Included') for row in self.passwords if not user or row['USR'] == user]
         if kind == 'password':
+            self.password_queries += 1
             return [dict(row) for row in self.passwords if not user or row['USR'] == user]
         if kind == 'otp_list':
             self.otp_metadata_queries += 1
@@ -136,6 +142,8 @@ class FlowTests(unittest.TestCase):
     def test_bind_alias_copies_nothing_and_persists_only_metadata(self):
         self.manager.login(login_request(save_alias='personal'))
         self.assertEqual(self.copies, [])
+        self.assertEqual(self.instances[0].password_queries, 0)
+        self.assertEqual(self.instances[0].password_metadata_queries, 1)
         saved = (Path(self.tmp.name) / 'aliases.json').read_text()
         self.assertNotIn('SECRET-', saved)
         self.assertNotIn('000001', saved)
@@ -148,6 +156,28 @@ class FlowTests(unittest.TestCase):
         self.manager.login(login_request(domain='', alias='personal'))
         self.assertEqual(self.copies, ['NEW-SECRET'])
         self.assertEqual(self.ui.pickers, [])
+        self.assertEqual(self.instances[0].password_queries, 1)
+
+    def test_repeated_password_login_reuses_session_cache_until_refreshed_or_locked(self):
+        self.manager.login(login_request())
+        self.assertEqual(self.copies, ['SECRET-ALICE'])
+        self.assertEqual(self.instances[0].password_queries, 1)
+        self.factory.passwords = [dict(PASSWORDS[0], PWD='ROTATED-SECRET'), PASSWORDS[1]]
+        self.ui = UI()
+        self.manager.login(login_request())
+        self.assertEqual(self.copies, ['SECRET-ALICE', 'SECRET-ALICE'])
+        self.assertEqual(self.instances[0].password_queries, 1)  # served from session cache without Touch ID read
+        self.ui = UI(actions=['refresh_password', 'done'])
+        self.manager.login(login_request())
+        self.assertEqual(self.copies, ['SECRET-ALICE', 'SECRET-ALICE', 'SECRET-ALICE', 'ROTATED-SECRET'])
+        self.assertEqual(self.instances[0].password_queries, 2)
+
+    def test_returning_from_otp_to_password_uses_cached_password_without_reprompt(self):
+        self.ui = UI(actions=['otp', 'password', 'done'])
+        self.manager.login(login_request())
+        self.assertEqual(self.copies, ['SECRET-ALICE', '000001', 'SECRET-ALICE'])
+        self.assertEqual(self.instances[0].password_queries, 1)
+        self.assertEqual(self.instances[0].otp_queries, 1)
 
     def test_stale_alias_never_falls_back_to_another_account(self):
         self.manager.login(login_request(save_alias='personal'))
@@ -178,6 +208,7 @@ class FlowTests(unittest.TestCase):
         result = self.manager.login(login_request())
         self.assertTrue(result['ok'])
         self.assertEqual(self.copies, [])
+        self.assertEqual(self.instances[0].password_queries, 0)
         self.assertEqual(self.instances[0].otp_queries, 0)
 
     def test_otp_alias_reads_code_once_without_password_scan(self):

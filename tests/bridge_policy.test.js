@@ -57,5 +57,11 @@ function fixture(operation = 'password') {
     assert.equal((await listing.request(otp)).status, 2);
     assert.equal((await listing.request(metadata)).data.STATUS, 0);
     assert.equal((await listing.request({...metadata, body: {...metadata.body, frameURLs: ['https://other.example']}})).status, 2);
+    const pwListing = fixture('password_list');
+    const pwMetadata = {cmd: 4, qid: 'CmdGetLoginNames4URL', url: 'example.com', body: {ACT: 5, URL: 'example.com'}};
+    assert.equal((await pwListing.request(pw)).status, 2);
+    assert.equal((await pwListing.request(pwMetadata)).data.STATUS, 0);
+    assert.equal((await pwListing.request({...pwMetadata, body: {...pwMetadata.body, URL: 'other.example'}})).status, 2);
+    assert.equal((await pwListing.request({...pwMetadata, body: {...pwMetadata.body, USR: 'alice'}})).status, 2);
     console.log('Bridge policy tests passed');
 })().catch(error => {console.error(error); process.exitCode = 1;});

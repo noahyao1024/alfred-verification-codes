@@ -95,13 +95,38 @@ class SessionManager:
         self.log = log
         self.alias_store = alias_store
         self.ui_factory = ui_factory
+        self.password_cache = {}
+        self.copy_cache = {}
+
+    def clear_cache(self):
+        self.password_cache.clear()
+        self.copy_cache.clear()
+
+    def get_cached_password(self, identity):
+        from .accounts import Account, identity_key
+        key = identity_key(identity)
+        value = self.password_cache.get(key)
+        if not value:
+            return None
+        return Account(dict(identity), value)
+
+    def put_cached_password(self, account):
+        from .accounts import identity_key
+        if account.kind == 'password' and account.value and not account.duplicate:
+            self.password_cache[identity_key(account.identity)] = account.value
+
+    def drop_cached_password(self, identity):
+        from .accounts import identity_key
+        self.password_cache.pop(identity_key(identity), None)
 
     def ensure_session(self, domain, username, mode):
         if self.session is None:
+            self.clear_cache()
             self.session = self.factory(domain, username, mode, guard=self.guard)
             self.session.__enter__()
         self.session.set_scope(domain, username, mode)
         if not self.session.state().get('paired'):
+            self.clear_cache()
             self.log('pair_requested')
             self.session.pair()
             self.log('paired')
@@ -127,6 +152,7 @@ class SessionManager:
             raise SessionExpired('会话已锁定或超时，请解锁后重新运行复制命令。')
 
     def close_session(self):
+        self.clear_cache()
         owned, self.session = self.session, None
         if owned:
             owned.__exit__(None, None, None)
@@ -156,10 +182,24 @@ class SessionManager:
         self.idle = request['idle_seconds']
         value = None
         try:
+            cache_key = (request['domain'], request['username'])
+            if request['mode'] == 'password' and self.session is not None and cache_key in self.copy_cache:
+                self.guard()
+                if self.session.state().get('paired'):
+                    value = self.copy_cache[cache_key]
+                    self.guard()
+                    self.copier(value, request['clear_after'])
+                    self.guard()
+                    self.log('password_cache_hit')
+                    self.log('copied')
+                    return {'ok': True, 'message': '密码已复制。'}
+                self.clear_cache()
             self.ensure_session(request['domain'], request['username'], request['mode'])
             self.guard()
             value = self.session.read(request['mode'])
             self.guard()  # a lock arriving during the read must prevent clipboard delivery
+            if request['mode'] == 'password':
+                self.copy_cache[cache_key] = value
             self.copier(value, request['clear_after'])
             self.guard()
             self.log('copied')
@@ -260,7 +300,8 @@ def metadata_write(root, token):
     fd, temporary = tempfile.mkstemp(prefix='session-meta-', dir=str(root))
     try:
         with os.fdopen(fd, 'w') as stream:
-            json.dump({'v': PROTOCOL, 'pid': os.getpid(), 'token': token, 'interactive': True, 'lazy_otp': True}, stream)
+            json.dump({'v': PROTOCOL, 'pid': os.getpid(), 'token': token,
+                       'interactive': True, 'lazy_otp': True, 'lazy_passwords': True, 'credential_cache': True}, stream)
         os.replace(temporary, root / 'session.json')
     finally:
         Path(temporary).unlink(missing_ok=True)

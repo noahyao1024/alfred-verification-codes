@@ -64,6 +64,13 @@ def account_list(entries, kind, domain, username='', metadata_only=False):
         value = '' if metadata_only else entry.get('PWD' if kind == 'password' else 'code')
         if not isinstance(user, str) or (username and user != username):
             continue
+        if kind == 'password' and user == 'Passwords\xa0not\xa0saved':
+            continue
+        if metadata_only and kind == 'password' and entry.get('PWD') not in ('Not Included', None, ''):
+            # Even in metadata mode, drop non-saved marker entries; if a real PWD is present, still strip it.
+            pass
+        if metadata_only and kind == 'password' and entry.get('PWD') not in ('Not Included', None) and not isinstance(entry.get('PWD'), str):
+            continue
         if not metadata_only and (not isinstance(value, str) or not value or value == 'Not Included'):
             continue
         if kind == 'password':

@@ -87,7 +87,7 @@ class ReuseTests(unittest.TestCase):
         self.manager.copy(request())
         owned = self.instances[0]
         owned.lookup_error = True
-        with self.assertRaises(CredentialLookupError): self.manager.copy(request())
+        with self.assertRaises(CredentialLookupError): self.manager.copy(request(username=''))
         self.assertFalse(owned.closed)
         self.assertIsNone(owned.scope)
         owned.lookup_error = False
@@ -123,11 +123,23 @@ class ReuseTests(unittest.TestCase):
         with self.assertRaises(broker.SessionExpired): self.manager.tick()
         self.assertTrue(self.instances[0].closed)
 
+    def test_repeated_copy_uses_session_cache_and_clears_on_close(self):
+        reads = []
+        self.instances_reads = reads
+        self.manager.copy(request())
+        owned = self.instances[0]
+        owned.on_read = lambda: reads.append('read')
+        self.manager.copy(request())
+        self.assertEqual(reads, [])  # cached password avoids a second Touch ID read
+        self.assertEqual(len(self.copies), 2)
+        self.manager.close_session()
+        self.assertEqual(self.manager.copy_cache, {})
+
     def test_lock_between_read_and_clipboard_prevents_delivery(self):
         self.manager.copy(request())
         self.copies.clear()
         self.instances[0].on_read = lambda: setattr(self.monitor, 'locked', True)
-        with self.assertRaises(broker.SessionExpired): self.manager.copy(request())
+        with self.assertRaises(broker.SessionExpired): self.manager.copy(request(username='bob'))
         self.assertEqual(self.copies, [])
         self.assertTrue(self.instances[0].closed)
 
@@ -135,7 +147,7 @@ class ReuseTests(unittest.TestCase):
         self.manager.copy(request())
         self.copies.clear()
         self.instances[0].on_read = self.manager.cancelled.set
-        with self.assertRaises(broker.SessionExpired): self.manager.copy(request())
+        with self.assertRaises(broker.SessionExpired): self.manager.copy(request(username='bob'))
         self.assertEqual(self.copies, [])
         self.assertTrue(self.instances[0].closed)
 
@@ -246,7 +258,7 @@ class BrokerIPCTests(unittest.TestCase):
             raise AssertionError('copy was not cancelled')
         self.instances[0].on_read = wait_until_cancelled
         results = []
-        caller = threading.Thread(target=lambda: results.append(client.rpc(request(), self.root)))
+        caller = threading.Thread(target=lambda: results.append(client.rpc(request(username='bob'), self.root)))
         caller.start()
         try:
             self.assertTrue(entered.wait(2))

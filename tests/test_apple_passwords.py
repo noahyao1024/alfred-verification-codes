@@ -115,6 +115,15 @@ class ResultTests(unittest.TestCase):
         self.assertEqual(request['body']['ACT'], 5)
         self.assertEqual(request['body']['frameURLs'], ['https://example.com'])
 
+    def test_password_metadata_listing_uses_login_names_ghost_search(self):
+        owned = session.PasswordSession('example.com', 'alice', 'password_list')
+        with patch.object(owned, 'request', return_value={'data': {'STATUS': 0, 'Entries': []}}) as sender:
+            self.assertEqual(owned.entries('password_list'), [])
+        request = sender.call_args.args[0]
+        self.assertEqual(request['cmd'], 4)
+        self.assertEqual(request['qid'], 'CmdGetLoginNames4URL')
+        self.assertEqual(request['body'], {'ACT': 5, 'URL': 'example.com'})
+
     def test_password_formats_and_exact_username(self):
         rows = [{"USR": "alice", "PWD": "FAKE-A"}, {"USR": "bob", "PWD": "FAKE-B"}]
         self.assertEqual(session.select_secret({"data": {"STATUS": 0, "Entries": rows}}, "password", "bob"), "FAKE-B")

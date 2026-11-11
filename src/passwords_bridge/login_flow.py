@@ -28,11 +28,30 @@ class LoginFlow:
         self.manager.ensure_session(self.domain, user, kind)
         try:
             self.manager.guard()
-            self.manager.log({'password': 'password_requested', 'otp': 'otp_requested', 'otp_list': 'otp_metadata_requested'}[kind])
-            return account_list(self.manager.session.entries(kind), 'otp' if kind == 'otp_list' else kind,
-                                self.domain, user, metadata_only=kind == 'otp_list')
+            events = {
+                'password': 'password_requested',
+                'password_list': 'password_metadata_requested',
+                'otp': 'otp_requested',
+                'otp_list': 'otp_metadata_requested',
+            }
+            self.manager.log(events[kind])
+            base_kind = 'password' if kind == 'password_list' else ('otp' if kind == 'otp_list' else kind)
+            return account_list(self.manager.session.entries(kind), base_kind,
+                                self.domain, user, metadata_only=kind in ('password_list', 'otp_list'))
         finally:
             self.manager.session.clear_scope()
+
+    def load_password(self, identity, force_refresh=False):
+        if force_refresh:
+            self.manager.drop_cached_password(identity)
+        else:
+            cached = self.manager.get_cached_password(identity)
+            if cached is not None:
+                self.manager.log('password_cache_hit')
+                return cached
+        resolved = resolve_identity(self.fetch('password', identity['username']), identity)
+        self.manager.put_cached_password(resolved)
+        return resolved
 
     def save_alias(self, account, name=''):
         if account.duplicate:
@@ -96,14 +115,21 @@ class LoginFlow:
             primary = resolve_otp_metadata(self.fetch('otp'), self.binding['identity'])
             return self.present(primary, False)
 
-        passwords = self.fetch('password')
+        try:
+            passwords = self.fetch('password_list')
+        except BridgeError:
+            self.manager.guard()
+            self.manager.log('password_metadata_unavailable')
+            if self.request['save_alias']:
+                raise
+            passwords = self.fetch('password')
         otp_error = False
         try:
             codes = self.fetch('otp_list')
         except BridgeError:
             self.manager.guard()  # never downgrade a screen lock/cancellation to "no OTP"
             self.manager.log('otp_metadata_unavailable')
-            if not passwords:
+            if not passwords and not self.request['save_alias']:
                 codes = self.fetch('otp')  # no password exists; OTP is the requested fallback
             else:
                 codes, otp_error = [], True
@@ -124,7 +150,12 @@ class LoginFlow:
         if self.request['save_alias']:
             saved = self.save_alias(primary, self.request['save_alias'])
             return {'ok': True, 'message': '别名已保存。' if saved else '已取消保存别名。'}
-        if primary.kind == 'otp':
+        if primary.kind == 'password':
+            if primary.value:
+                self.manager.put_cached_password(primary)
+            else:
+                primary = self.load_password(primary.identity)
+        elif primary.kind == 'otp':
             primary = resolve_otp_metadata(self.fetch('otp', primary.username), primary.identity)
         has_otp = bool(otp_matches(primary, codes)) or otp_error
         return self.present(primary, has_otp)
@@ -147,8 +178,10 @@ class LoginFlow:
                         self.ui.message('别名未保存', str(error))
                     continue
                 if action == 'password' and primary.kind == 'password':
-                    # Re-read instead of reusing a password that may have changed.
-                    primary = resolve_identity(self.fetch('password', primary.username), primary.identity)
+                    primary = self.load_password(primary.identity)
+                    current = primary
+                elif action == 'refresh_password' and primary.kind == 'password':
+                    primary = self.load_password(primary.identity, force_refresh=True)
                     current = primary
                 elif action == 'otp' and primary.kind == 'password':
                     selected = self.fresh_code(primary)

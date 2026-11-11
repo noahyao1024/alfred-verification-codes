@@ -187,13 +187,17 @@ count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
 
-Version 0.8.1 removes avoidable reads: account discovery uses Apple's metadata-only
-OTP listing (`cmd 16`, ghost search), and OTP values are read only after the user
-requests them. On the normal metadata path, a selected OTP is read once per copy/refresh. If metadata
-listing is unavailable, value-reading fallback is deferred until an explicit OTP
-request (or when there are no passwords and the user is choosing an OTP-only account).
-Phase logs (`pair_requested`, `paired`, `password_requested`,
-`otp_metadata_requested`, `otp_requested`) contain no account or credential values.
+Version 0.8.2 removes avoidable reads and repeated password prompts: account
+discovery uses Apple's metadata-only login listing (`cmd 4`, ghost search) and
+OTP listing (`cmd 16`, ghost search), neither of which triggers Touch ID. The
+password value (`cmd 5`) is read only after selecting an account, and is cached
+in broker memory for the bounded session so repeated copies or switching back
+from OTP do not re-prompt Touch ID (use Refresh Password in the window to force
+a re-read; `pwlock` or lock/idle expiry clears the cache). OTP values are read
+only after the user requests them, once per copy/refresh. Phase logs
+(`pair_requested`, `paired`, `password_metadata_requested`, `password_requested`,
+`password_cache_hit`, `otp_metadata_requested`, `otp_requested`) contain no
+account or credential values.
 
 If upgrading from 0.5, stop the old service once with `apwcli daemon stop`.
 The new workflow neither connects to it nor restarts it. Its own bounded session

@@ -76,13 +76,16 @@
     const body = message.body || {};
     const passwordRead = CONFIG.operation === "password" && message.cmd === 5 && message.qid === "CmdGetPassword4LoginName" &&
       body.ACT === 2 && body.URL === CONFIG.domain && body.USR === CONFIG.username;
+    const passwordList = CONFIG.operation === "password_list" && message.cmd === 4 && message.qid === "CmdGetLoginNames4URL" &&
+      body.ACT === 5 && body.URL === CONFIG.domain && message.url === CONFIG.domain &&
+      Object.keys(body).length === 2;
     const otpRead = CONFIG.operation === "otp" && message.cmd === 17 && message.qid === "CmdDidFillOneTimeCode" &&
       body.ACT === 2 && body.TYPE === "oneTimeCodes" && Array.isArray(body.frameURLs) &&
       body.frameURLs.length === 1 && body.frameURLs[0] === "https://" + CONFIG.domain;
     const otpList = CONFIG.operation === "otp_list" && message.cmd === 16 && message.qid === "CmdDidFillOneTimeCode" &&
       body.ACT === 5 && body.TYPE === "oneTimeCodes" && Array.isArray(body.frameURLs) &&
       body.frameURLs.length === 1 && body.frameURLs[0] === "https://" + CONFIG.domain;
-    if (!CONFIG.domain || !(passwordRead || otpRead || otpList))
+    if (!CONFIG.domain || !(passwordRead || passwordList || otpRead || otpList))
       return { status: INVALID_PARAM, error: "operation not permitted" };
 
     // Validate before touching the crypto or native layers.

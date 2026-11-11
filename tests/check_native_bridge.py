@@ -109,6 +109,13 @@ class NativeBridgeTests(unittest.TestCase):
             self.assertEqual(session.request(metadata)['status'], 9)
             metadata['cmd'], metadata['body']['ACT'] = 17, 2
             self.assertEqual(session.request(metadata)['status'], 2)
+        with PasswordSession('example.invalid', 'fixture-user', 'password_list') as session:
+            pw_meta = {'cmd': 4, 'qid': 'CmdGetLoginNames4URL', 'url': 'example.invalid',
+                       'body': {'ACT': 5, 'URL': 'example.invalid'}}
+            self.assertEqual(session.request(pw_meta)['status'], 9)
+            pw_read = {'cmd': 5, 'qid': 'CmdGetPassword4LoginName', 'url': 'example.invalid',
+                       'body': {'ACT': 2, 'URL': 'example.invalid', 'USR': 'fixture-user'}}
+            self.assertEqual(session.request(pw_read)['status'], 2)
 
     def test_account_picker_modal_search_and_selection(self):
         script = Path(__file__).resolve().parents[1] / 'src/passwords_bridge/local_ui.js'

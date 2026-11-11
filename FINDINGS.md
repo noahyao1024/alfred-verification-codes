@@ -1,5 +1,11 @@
 # Earlier Passwords UI automation findings
 
+Update for 0.8.2: account discovery now uses metadata-only login listing (`cmd 4`,
+`ACT 5`) as well as metadata-only OTP listing (`cmd 16`, `ACT 5`), so opening the
+picker, cancelling selection, or binding an alias does not read secrets or trigger
+Touch ID. Authorized passwords are cached in broker memory for the active bounded
+session so repeated copies of the same account do not re-trigger Touch ID.
+
 Update for 0.8.1: short names now have explicit domain-completion/original-host
 query actions. OTP discovery uses the native metadata-only command; value reads
 are deferred until needed. A pairing event in our log does not count or explain
