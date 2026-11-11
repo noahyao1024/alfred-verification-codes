@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -36,6 +37,12 @@ class QueryTests(unittest.TestCase):
         for value in ("-1", "NaN", "1.5", "90000"):
             with patch.dict(os.environ, {"CLEAR_CLIPBOARD_AFTER": value}), self.assertRaises(BridgeError):
                 app.clear_seconds()
+
+    def test_direct_catalog_syntax_keeps_short_names_as_visible_completions(self):
+        self.assertIsNone(app.catalog_query('github'))
+        self.assertEqual(app.catalog_query('github.com ali'), ('github.com', 'ali', 'password'))
+        self.assertEqual(app.catalog_query('codes github.com'), ('github.com', '', 'otp'))
+        self.assertEqual(app.catalog_query('site intranet bob'), ('intranet', 'bob', 'password'))
 
 
 class FrontendTests(unittest.TestCase):
@@ -77,6 +84,41 @@ class FrontendTests(unittest.TestCase):
             self.assertEqual(app.main(['lock']), 0)
             lock.assert_called_once()
             copy.assert_not_called()
+
+    def test_direct_menu_returns_secret_free_alfred_results(self):
+        identity = {'kind': 'password', 'username': 'alice', 'title': 'Personal',
+                    'sites': ['example.com']}
+        reply = {'ok': True, 'mode': 'password', 'fallback': False,
+                 'accounts': [{'identity': identity, 'duplicate': False}]}
+        with tempfile.TemporaryDirectory() as root, \
+             patch.object(app, 'request_catalog', return_value=reply) as request, \
+             patch.dict(os.environ, {'SESSION_IDLE_SECONDS': '300'}):
+            result = app.direct_menu('example.com ali', app.AliasStore(root))
+        request.assert_called_once_with('example.com', 'password', 300)
+        self.assertEqual(json.loads(result['items'][0]['arg'])['action'], 'select')
+        self.assertNotIn('SECRET-', json.dumps(result))
+
+    def test_exact_alias_wins_over_direct_localhost_routing(self):
+        identity = {'kind': 'password', 'username': 'alice', 'title': 'Local',
+                    'sites': ['localhost']}
+        with tempfile.TemporaryDirectory() as root:
+            store = app.AliasStore(root)
+            store.put('localhost', {'domain': 'localhost', 'identity': identity})
+            with patch.object(app, 'request_catalog') as request:
+                result = app.direct_menu('localhost', store)
+        self.assertEqual(json.loads(result['items'][0]['arg']),
+                         {'action': 'login', 'alias': 'localhost'})
+        request.assert_not_called()
+
+    def test_selected_alfred_result_goes_directly_to_copy_request(self):
+        identity = {'kind': 'password', 'username': 'alice', 'title': 'Personal',
+                    'sites': ['example.com']}
+        action = {'action': 'select', 'domain': 'example.com', 'identity': identity}
+        with patch.object(app, 'request_selected', return_value={'ok': True, 'message': 'copied'}) as selected, \
+             patch.dict(os.environ, {'CLEAR_CLIPBOARD_AFTER': '45', 'SESSION_IDLE_SECONDS': '300',
+                                     'SHOW_SECRETS': '1', 'DISPLAY_SECONDS': '45'}):
+            self.assertEqual(app.interactive(action), (True, 'copied'))
+        selected.assert_called_once_with('example.com', identity, 45, 300, True, 45)
 
     def test_idle_configuration_rejects_unbounded_values(self):
         for value in ('0', '-1', '1801', 'forever'):

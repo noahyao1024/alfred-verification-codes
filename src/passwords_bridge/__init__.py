@@ -1,1 +1,1 @@
-"""Bounded Apple Passwords sessions with private browser pipes and copy-only IPC."""
+"""Bounded Apple Passwords sessions with private pipes and secret-free result IPC."""

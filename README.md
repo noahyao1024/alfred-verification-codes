@@ -34,12 +34,15 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
-Use **one entry point: `pass`**. Start with `pass github.com`, select the account
-in the searchable native list, and the password is copied first. Its value is
+Use **one entry point: `pass`**. Start with `pass github.com`; matching account
+metadata appears directly in Alfred and remains searchable in its existing input.
+Select an account and the password is copied first. Its value is
 shown in a movable floating window for manual typing. When ready, click **Copy
 Verification Code**; the matching code is fetched again and copied then, without
-immediately overwriting the password after the first step. OTP-only accounts are
-also listed. A broader-domain or multiple-code match asks you to select the code.
+immediately overwriting the password after the first step. Choose **Show
+verification-code-only accounts** to load those separately; when no password
+exists, the workflow falls back to them automatically. A broader-domain or
+multiple-code match asks you to select the code.
 
 Short names also show query actions: `pass github` offers the visible completion
 `github.com` plus an original-host option for single-label/intranet names. Matching
@@ -50,7 +53,8 @@ site completion, not a new whole-vault keyword search.
 | Alfred input | Result |
 | --- | --- |
 | `pass` | Show saved aliases and actions; Enter on Find Account asks for a website |
-| `pass github.com` | Search the site's account list; select, copy password, then optionally OTP |
+| `pass github.com` | Show the site's password accounts in Alfred; type more to filter, then select and copy |
+| `pass codes github.com` | Show verification-code accounts in Alfred |
 | `pass github` | Choose a visible domain completion or query the original host |
 | `pass github.com me@example.com` | Narrow the account list to this username |
 | `pass gh-work` or `pass @gh-work` | Use the account bound to this alias |
@@ -60,6 +64,7 @@ site completion, not a new whole-vault keyword search.
 | `pass alias remove gh-work` | Remove only the alias |
 | `pass setup` | Prepare and verify the pinned official extension |
 | `pass lock` | Close the current session without starting a new one |
+| `pass stats` | Show recent average and P95 timings for each secret-free phase |
 | `otp` / `otpadd` | Use the existing, separate local seed store |
 
 The legacy `pcode`, `pwsetup`, and `pwlock` shortcuts remain compatible, but are
@@ -78,11 +83,12 @@ binding. A renamed/changed/duplicated account cannot silently redirect an alias:
 query the domain again and update the binding. Overwriting a different binding
 requires confirmation. `aliases.json` is private and updated atomically.
 
-`pass` and `pcode` connect to a short-lived, copy-only broker. It owns the private
+`pass` and `pcode` connect to a short-lived broker. It owns the private
 browser profile and anonymous CDP pipes; no TCP debugging listener is opened.
 The broker's Unix socket requires the same OS user and a per-session token in a
-private directory. It copies within the broker and returns only a status, never
-passwords or codes, to Alfred. On explicit user request, the copied value is now
+private directory. It returns account metadata for the Alfred result list, but
+copies secrets within the broker and never returns passwords or codes to Alfred.
+On explicit user request, the copied value is now
 displayed in a temporary native window for manual typing; it is not put into
 Notification Center history or debugging output. Turn off **Show copied value**
 (`SHOW_SECRETS`) to suppress plaintext while retaining the copy controls. Set
@@ -187,25 +193,31 @@ count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
 
-Version 0.8.2 removes avoidable reads and repeated password prompts: account
-discovery uses Apple's metadata-only login listing (`cmd 4`, ghost search) and
-OTP listing (`cmd 16`, ghost search), neither of which triggers Touch ID. The
-password value (`cmd 5`) is read only after selecting an account, and is cached
-in broker memory for the bounded session so repeated copies or switching back
-from OTP do not re-prompt Touch ID (use Refresh Password in the window to force
-a re-read; `pwlock` or lock/idle expiry clears the cache). OTP values are read
-only after the user requests them, once per copy/refresh. Phase logs
-(`pair_requested`, `paired`, `password_metadata_requested`, `password_requested`,
-`password_cache_hit`, `otp_metadata_requested`, `otp_requested`) contain no
-account or credential values.
+Version 0.8.3 keeps Alfred's input visible while account metadata loads and
+renders the results directly in Alfred. The common path now requests only Apple's
+metadata-only password listing (`cmd 4`, ghost search); it defers OTP metadata
+(`cmd 16`) until requested, eliminating one serial helper call before password
+results. Password aliases and selected Alfred results also skip metadata scans
+and resolve their bound identity during the one selected value read. A 30-second
+in-session metadata cache makes repeated filtering immediate.
+
+The password value (`cmd 5`) is read only after selecting an account, and is
+cached in broker memory for the bounded session so repeated copies or switching
+back from OTP do not re-prompt Touch ID (use Refresh Password in the window to
+force a re-read; `pwlock` or lock/idle expiry clears the cache). OTP values are
+read only after the user requests them, once per copy/refresh. `pass stats`
+summarizes recent average and P95 timings for broker/browser startup, pairing,
+metadata/value reads, Alfred-result readiness, the legacy picker, and total
+requests. Logs contain only allowlisted phase/event names and integer
+milliseconds—never domains, usernames, responses, or credential values.
 
 If upgrading from 0.5, stop the old service once with `apwcli daemon stop`.
 The new workflow neither connects to it nor restarts it. Its own bounded session
-broker starts only when a copy is requested. Use `pwlock` to stop it. Setup and
+broker starts when account metadata or a credential is requested. Use `pwlock` to stop it. Setup and
 runtime files live under `~/Library/Application Support/Passwords Quick Copy`:
 the pinned extension, a mode-0600 `session.json` (PID/token while running), the
-mode-0600 socket, and `session.log`. Logs contain fixed lifecycle events only,
-never account names, PINs, passwords, or request bodies.
+mode-0600 socket, and `session.log`. Logs contain only allowlisted events and
+phase timings, never account names, domains, PINs, passwords, or request bodies.
 
 On timeout/lock/shutdown, the broker closes its browser and removes the session
 socket, token, and temporary browser profile. A force-killed process can leave

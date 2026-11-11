@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.8.2")
+VERSION = os.environ.get("VERSION", "0.8.3")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -93,7 +93,7 @@ objects = [
         "version": 1,
     },
     scriptfilter(KW_PASSWORD, "{var:passwordkeyword}", "密码、验证码与别名",
-                 "输入网站或别名；回车选择账号，密码先复制，随后可复制验证码",
+                 "输入网站或别名；账号直接显示在 Alfred，回车复制",
                  '/usr/bin/python3 -I apple-passwords.py --menu "$1"'),
     runscript(S_PASSWORD, '/usr/bin/python3 -I apple-passwords.py --act "$1"'),
     keyword(KW_APP_OTP, "{var:appleotpkeyword}", "复制 Apple Passwords 验证码",
@@ -109,7 +109,8 @@ objects = [
 
 for obj in objects:
     if obj['uid'] == KW_PASSWORD:
-        obj['config'].update({'scriptargtype': 1, 'alfredfiltersresults': False})
+        obj['config'].update({'scriptargtype': 1, 'alfredfiltersresults': False,
+                              'runningsubtext': '正在读取账号元数据…'})
 
 connections = {
     SF_OTP: [conn(S_OTP, 0, "copy code"),
@@ -215,16 +216,19 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 ## Usage
 
 * `pass github` shows a visible `github.com` completion and an original-host option; alias matches keep priority.
-* `pass github.com [username]`: search the account list, select one, and copy its password first.
+* `pass github.com [search text]`: show matching password accounts directly in Alfred, then select and copy.
+* `pass codes github.com`: show verification-code-only accounts on demand.
 * The copied value appears in a temporary native window for manual typing. Click \
 Copy Verification Code when ready; its value is read only then. Initial discovery uses metadata, not OTP values.
 * Use Set Alias in the window, then `pass gh-work` to reuse that exact account.
 * `pass alias`: list aliases; Command-Return renames, Option-Return removes an alias.
 * `pass alias add gh-work github.com [username]`: bind an alias without copying a secret.
 * `pass setup` prepares the extension; `pass lock` closes the active session.
+* `pass stats` shows recent average and P95 phase timings without account data.
 * `pcode`, `pwsetup`, and `pwlock` remain as compatibility shortcuts.
 
-Passwords and codes are never returned to Alfred's debugger or stored in \
+Account metadata is returned for Alfred's result list. Passwords and codes are \
+never returned to Alfred's debugger or stored in \
 Notification Center. By request, the copied value is displayed in a temporary \
 local window (disable Show copied value if desired); screen viewers can see it.
 Aliases store account identifiers only, never a password or OTP seed.
@@ -234,7 +238,7 @@ of inactivity by default, screen lock, sleep/session switch, manual pwlock, \
 or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
 The idle timeout is configurable. A later copy starts a fresh session.
 
-The copy-only broker uses a mode-0600 Unix socket and a per-session token in a \
+The broker uses a mode-0600 Unix socket and a per-session token in a \
 mode-0700 directory. Passwords never travel back to Alfred over that socket. \
 Browser control still uses anonymous CDP pipes, with no TCP debugging port. \
 These controls do not authenticate Alfred as a unique application or protect \

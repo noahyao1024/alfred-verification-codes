@@ -1,5 +1,11 @@
 # Earlier Passwords UI automation findings
 
+Update for 0.8.3: website-scoped account metadata now renders directly as
+Alfred Script Filter results. The common password path performs only the `cmd 4`
+metadata query before showing results; OTP metadata is lazy, and aliases/direct
+selections skip catalogue scans. Allowlisted millisecond timings can be summarized
+with `pass stats`; no domain, account, response, or secret is logged.
+
 Update for 0.8.2: account discovery now uses metadata-only login listing (`cmd 4`,
 `ACT 5`) as well as metadata-only OTP listing (`cmd 16`, `ACT 5`), so opening the
 picker, cancelling selection, or binding an alias does not read secrets or trigger

@@ -10,6 +10,7 @@ from .session import CredentialLookupError
 class LoginFlow:
     def __init__(self, manager, store, request, ui=None):
         self.manager, self.store, self.request = manager, store, request
+        self.started = manager.perf_clock()
         self.ui = ui or LocalUI(manager.guard, self.keepalive)
         self.domain, self.username = request['domain'], request['username']
         self.binding = None
@@ -26,6 +27,7 @@ class LoginFlow:
     def fetch(self, kind, username=None):
         user = self.username if username is None else username
         self.manager.ensure_session(self.domain, user, kind)
+        started = self.manager.perf_clock()
         try:
             self.manager.guard()
             events = {
@@ -39,6 +41,11 @@ class LoginFlow:
             return account_list(self.manager.session.entries(kind), base_kind,
                                 self.domain, user, metadata_only=kind in ('password_list', 'otp_list'))
         finally:
+            phase = {
+                'password': 'password_value', 'password_list': 'password_metadata',
+                'otp': 'otp_value', 'otp_list': 'otp_metadata',
+            }[kind]
+            self.manager.record_performance(phase, started)
             self.manager.session.clear_scope()
 
     def load_password(self, identity, force_refresh=False):
@@ -109,11 +116,14 @@ class LoginFlow:
         return resolve_otp_metadata(self.fetch('otp', primary.username), selected.identity)
 
     def run(self):
-        # An OTP alias already identifies the requested factor. Do not read
-        # passwords or a metadata catalogue before its one explicit secret read.
-        if self.binding and self.binding['identity']['kind'] == 'otp':
-            primary = resolve_otp_metadata(self.fetch('otp'), self.binding['identity'])
-            return self.present(primary, False)
+        # A bound alias already supplies exact metadata. Resolve its one secret
+        # read directly instead of scanning either account catalogue first.
+        if self.binding:
+            identity = self.binding['identity']
+            if identity['kind'] == 'otp':
+                primary = resolve_otp_metadata(self.fetch('otp'), identity)
+                return self.present(primary, False)
+            return self.present(self.load_password(identity), True)
 
         try:
             passwords = self.fetch('password_list')
@@ -123,26 +133,26 @@ class LoginFlow:
             if self.request['save_alias']:
                 raise
             passwords = self.fetch('password')
-        otp_error = False
-        try:
-            codes = self.fetch('otp_list')
-        except BridgeError:
-            self.manager.guard()  # never downgrade a screen lock/cancellation to "no OTP"
-            self.manager.log('otp_metadata_unavailable')
-            if not passwords and not self.request['save_alias']:
-                codes = self.fetch('otp')  # no password exists; OTP is the requested fallback
-            else:
-                codes, otp_error = [], True
-        # Accounts with a password enter through that password; OTP-only accounts
-        # remain selectable instead of disappearing behind another user's password.
-        names_with_passwords = {account.username for account in passwords}
-        accounts = passwords + [code for code in codes if code.username not in names_with_passwords]
+        codes, otp_unknown = [], bool(passwords)
+        if not passwords:
+            try:
+                codes = self.fetch('otp_list')
+            except BridgeError:
+                self.manager.guard()
+                self.manager.log('otp_metadata_unavailable')
+                if self.request['save_alias']:
+                    raise
+                codes = self.fetch('otp')
+            otp_unknown = False
+        accounts = passwords or codes
         if not accounts:
             raise CredentialLookupError('这个网站没有匹配的密码或验证码。')
-        if self.binding:
-            primary = resolve_identity(passwords, self.binding['identity'])
-        else:
+        self.manager.record_performance('time_to_picker', self.started)
+        picker_started = self.manager.perf_clock()
+        try:
             primary = self.ui.choose(accounts, '选择账号', self.domain + ' · 可搜索用户名、名称或网站；优先复制密码。')
+        finally:
+            self.manager.record_performance('picker_interaction', picker_started)
         if primary is None:
             return {'ok': True, 'message': '已取消账号选择，未复制新内容。'}
         if primary.duplicate:
@@ -157,8 +167,16 @@ class LoginFlow:
                 primary = self.load_password(primary.identity)
         elif primary.kind == 'otp':
             primary = resolve_otp_metadata(self.fetch('otp', primary.username), primary.identity)
-        has_otp = bool(otp_matches(primary, codes)) or otp_error
+        has_otp = primary.kind == 'password' and (otp_unknown or bool(otp_matches(primary, codes)))
         return self.present(primary, has_otp)
+
+    def run_selected(self, identity):
+        """Copy one exact Alfred result without opening another account picker."""
+        if identity['kind'] == 'password':
+            primary = self.load_password(identity)
+            return self.present(primary, True)
+        primary = resolve_otp_metadata(self.fetch('otp', identity['username']), identity)
+        return self.present(primary, False)
 
     def present(self, primary, has_otp):
         current = primary

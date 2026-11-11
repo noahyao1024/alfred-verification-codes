@@ -16,9 +16,10 @@ from passwords_bridge import broker, client
 from passwords_bridge.accounts import account_list, resolve_identity, resolve_otp_metadata
 from passwords_bridge.aliases import AliasStore, AliasExists
 from passwords_bridge.browser import BridgeError
-from passwords_bridge.menu import menu, validate_action
+from passwords_bridge.menu import catalog_menu, menu, validate_action
 from passwords_bridge.local_ui import LocalUI
 from passwords_bridge.broker import SessionExpired
+from passwords_bridge.performance import format_log_event, stats_menu
 from passwords_bridge.session import CredentialLookupError
 from test_session_reuse import FakeSession, Monitor
 
@@ -27,6 +28,17 @@ def login_request(**changes):
     base = {'op': 'login', 'domain': 'example.com', 'username': '', 'alias': '', 'save_alias': '',
             'clear_after': 0, 'idle_seconds': 300, 'display': True, 'display_seconds': 45}
     return dict(base, **changes)
+
+
+def catalog_request(**changes):
+    return dict({'op': 'catalog', 'mode': 'password', 'domain': 'example.com',
+                 'idle_seconds': 300}, **changes)
+
+
+def select_request(identity, **changes):
+    return dict({'op': 'select', 'domain': 'example.com', 'identity': identity,
+                 'clear_after': 0, 'idle_seconds': 300, 'display': True,
+                 'display_seconds': 45}, **changes)
 
 
 PASSWORDS = [
@@ -82,12 +94,12 @@ class FlowTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = AliasStore(self.tmp.name)
-        self.instances, self.copies = [], []
+        self.instances, self.copies, self.logs = [], [], []
         self.factory = type('CatalogFixture', (CatalogSession,), {'instances': self.instances})
         self.ui = UI()
         self.manager = broker.SessionManager(Monitor(), self.factory,
             lambda value, seconds: self.copies.append(value), alias_store=self.store,
-            ui_factory=lambda manager, flow: self.ui)
+            ui_factory=lambda manager, flow: self.ui, log=self.logs.append)
     def tearDown(self):
         self.manager.close_session()
         self.tmp.cleanup()
@@ -99,13 +111,14 @@ class FlowTests(unittest.TestCase):
         self.assertNotIn('SECRET-', json.dumps(result))
         self.assertIsNone(self.instances[0].scope)
         self.assertEqual(self.instances[0].otp_queries, 0)
-        self.assertEqual(self.instances[0].otp_metadata_queries, 1)
+        self.assertEqual(self.instances[0].otp_metadata_queries, 0)
+        self.assertTrue(any(event.startswith('perf|time_to_picker|') for event in self.logs))
 
     def test_selected_account_not_first_account_is_copied(self):
         self.ui = UI(choices=[1])
         self.manager.login(login_request())
         self.assertEqual(self.copies, ['SECRET-BOB'])
-        self.assertFalse(self.ui.panels[0][2])  # Alice's OTP must not be offered for Bob.
+        self.assertTrue(self.ui.panels[0][2])  # OTP discovery is deferred until the button is used.
 
     def test_otp_is_fetched_after_confirmation_and_not_from_prefetch(self):
         self.ui = UI(actions=['otp', 'done'])
@@ -113,6 +126,7 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(self.copies, ['SECRET-ALICE', '000001'])
         self.assertEqual(len(self.ui.pickers), 1)  # one exact OTP needs no second account prompt
         self.assertEqual(self.instances[0].pairs, 1)
+        self.assertEqual(self.instances[0].otp_metadata_queries, 1)
         self.assertEqual(self.instances[0].otp_queries, 1)
 
     def test_otp_refresh_fetches_another_current_value(self):
@@ -157,6 +171,41 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(self.copies, ['NEW-SECRET'])
         self.assertEqual(self.ui.pickers, [])
         self.assertEqual(self.instances[0].password_queries, 1)
+        self.assertEqual(self.instances[0].password_metadata_queries, 1)  # initial binding only
+        self.assertEqual(self.instances[0].otp_metadata_queries, 0)
+
+    def test_catalog_returns_passwords_before_any_otp_query_and_caches_metadata(self):
+        first = self.manager.catalog(catalog_request())
+        second = self.manager.catalog(catalog_request())
+        self.assertEqual(first['mode'], 'password')
+        self.assertEqual(len(first['accounts']), 2)
+        self.assertEqual(first, second)
+        self.assertEqual(self.instances[0].password_metadata_queries, 1)
+        self.assertEqual(self.instances[0].otp_metadata_queries, 0)
+        self.assertNotIn('SECRET-', json.dumps(first))
+        self.assertIn('catalog_cache_hit', self.logs)
+
+    def test_catalog_falls_back_to_otp_only_when_no_password_exists(self):
+        self.factory.passwords = []
+        result = self.manager.catalog(catalog_request())
+        cached = self.manager.catalog(catalog_request())
+        self.assertEqual(result['mode'], 'otp')
+        self.assertEqual(result, cached)
+        self.assertEqual(len(result['accounts']), 1)
+        self.assertEqual(self.instances[0].password_metadata_queries, 1)
+        self.assertEqual(self.instances[0].otp_metadata_queries, 1)
+        self.assertNotIn('111111', json.dumps(result))
+
+    def test_alfred_selection_skips_picker_and_metadata_scans(self):
+        identity = account_list(PASSWORDS, 'password', 'example.com', metadata_only=True)[1].identity
+        result = self.manager.select(select_request(identity))
+        self.assertTrue(result['ok'])
+        self.assertEqual(self.copies, ['SECRET-BOB'])
+        self.assertEqual(self.ui.pickers, [])
+        self.assertEqual(self.instances[0].password_queries, 1)
+        self.assertEqual(self.instances[0].password_metadata_queries, 0)
+        self.assertEqual(self.instances[0].otp_metadata_queries, 0)
+        self.assertNotIn('SECRET-', json.dumps(result))
 
     def test_repeated_password_login_reuses_session_cache_until_refreshed_or_locked(self):
         self.manager.login(login_request())
@@ -316,8 +365,8 @@ class AliasAndMenuTests(unittest.TestCase):
     def test_short_name_offers_visible_com_completion_and_original_host(self):
         items = menu('github alice', self.store)['items']
         actions = [json.loads(item['arg']) for item in items if 'arg' in item]
-        self.assertEqual(actions[0], {'action': 'login', 'query': 'github.com alice'})
-        self.assertIn({'action': 'login', 'query': 'github alice'}, actions)
+        self.assertEqual(actions[0], {'action': 'search', 'query': 'github.com alice'})
+        self.assertIn({'action': 'search', 'query': 'site github alice'}, actions)
         self.assertIn('github.com', items[0]['title'])
 
     def test_alias_matches_keep_priority_over_short_name_completion(self):
@@ -327,7 +376,33 @@ class AliasAndMenuTests(unittest.TestCase):
 
     def test_other_suffix_and_localhost_are_not_forced_to_com(self):
         self.assertEqual(json.loads(menu('example.org', self.store)['items'][0]['arg'])['query'], 'example.org')
-        self.assertEqual(json.loads(menu('localhost', self.store)['items'][0]['arg'])['query'], 'localhost')
+        self.assertEqual(json.loads(menu('localhost', self.store)['items'][0]['arg'])['query'], 'site localhost')
+
+    def test_catalog_menu_filters_in_alfred_and_carries_metadata_only(self):
+        accounts = [{'identity': account_list(PASSWORDS, 'password', 'example.com',
+                                               metadata_only=True)[0].identity,
+                     'duplicate': False}]
+        result = catalog_menu('example.com', accounts, 'ali', 'password')
+        action = validate_action(json.loads(result['items'][0]['arg']))
+        self.assertEqual(action['action'], 'select')
+        self.assertEqual(action['identity']['username'], 'alice')
+        self.assertNotIn('SECRET-', json.dumps(result))
+        self.assertEqual(json.loads(result['items'][-1]['arg']),
+                         {'action': 'search', 'query': 'codes example.com'})
+        fallback = catalog_menu('example.com', accounts, mode='otp', fallback=True)
+        self.assertEqual(len(fallback['items']), 1)
+
+    def test_performance_log_accepts_only_allowlisted_shape_and_summarizes(self):
+        self.assertEqual(format_log_event('perf|catalog_total|123'), 'perf catalog_total 123')
+        self.assertIsNone(format_log_event('perf|catalog_total|123 SECRET'))
+        self.assertIsNone(format_log_event('example.com'))
+        path = Path(self.tmp.name) / 'session.log'
+        path.with_name('session.log.1').write_text('0 perf catalog_total 50\n')
+        path.write_text('1 perf catalog_total 100\n2 perf catalog_total 200\n'
+                        '3 copied_password\n4 perf unknown_phase 999\n')
+        rendered = stats_menu(path)
+        self.assertIn('平均 117 ms', rendered['items'][0]['title'])
+        self.assertNotIn('example.com', json.dumps(rendered))
 
 
 @unittest.skipUnless(sys.platform == 'darwin', 'AppKit and Darwin peer credentials required')
@@ -357,6 +432,38 @@ class InteractiveNativeTests(unittest.TestCase):
                 self.assertNotIn('SECRET-', json.dumps(reply))
                 self.assertNotIn('000001', json.dumps(reply))
                 self.assertNotIn('SECRET-', (Path(root) / 'session.log').read_text())
+            finally:
+                try: client.rpc({'op': 'stop'}, Path(root))
+                except client.Unavailable: pass
+                thread.join(timeout=5)
+                self.assertFalse(thread.is_alive())
+
+    def test_catalog_rpc_returns_only_metadata_then_selects_without_picker(self):
+        with tempfile.TemporaryDirectory(prefix='pw-catalog-ipc-') as root:
+            ready = threading.Event()
+            copies, ui = [], UI(actions=['done'])
+            thread = threading.Thread(target=broker.serve, kwargs={
+                'root': root, 'monitor_factory': Monitor, 'session_factory': CatalogSession,
+                'copier': lambda value, delay: copies.append(value), 'ready': ready,
+                'ui_factory': lambda manager, flow: ui})
+            thread.start()
+            try:
+                self.assertTrue(ready.wait(5))
+                catalog = client.rpc(catalog_request(), Path(root))
+                self.assertTrue(catalog['ok'])
+                self.assertNotIn('SECRET-', json.dumps(catalog))
+                chosen = catalog['accounts'][1]['identity']
+                selected = client.rpc(select_request(chosen), Path(root))
+                self.assertTrue(selected['ok'])
+                self.assertEqual(copies, ['SECRET-BOB'])
+                self.assertEqual(ui.pickers, [])
+                self.assertNotIn('SECRET-', json.dumps(selected))
+                log = (Path(root) / 'session.log').read_text()
+                self.assertIn(' perf catalog_total ', log)
+                self.assertIn(' perf password_value ', log)
+                self.assertNotIn('example.com', log)
+                self.assertNotIn('alice', log)
+                self.assertNotIn('bob', log)
             finally:
                 try: client.rpc({'op': 'stop'}, Path(root))
                 except client.Unavailable: pass

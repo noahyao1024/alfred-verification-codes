@@ -10,7 +10,7 @@ import sys
 import time
 
 from .browser import BridgeError
-from .broker import PROTOCOL, validate_copy, validate_login
+from .broker import PROTOCOL, validate_catalog, validate_copy, validate_login, validate_select
 from .extension import data_dir
 
 
@@ -46,13 +46,13 @@ def rpc(request, root=None):
             raise Unavailable from None
         # Interactive account/popup steps can legitimately exceed a PIN-only wait.
         # The broker's 30-minute lifetime cap still bounds the entire interaction.
-        connection.settimeout(1860 if request.get('op') == 'login' else 180)
+        connection.settimeout(1860 if request.get('op') in ('login', 'catalog', 'select') else 180)
         packet = dict(request, v=PROTOCOL, token=info['token'])
         connection.sendall(json.dumps(packet).encode() + b'\n')
         reply = b''
         while b'\n' not in reply:
             part = connection.recv(4096)
-            if not part or len(reply) + len(part) > 8192:
+            if not part or len(reply) + len(part) > 262144:
                 raise BridgeError('会话连接中断，结果未确认；请先检查剪贴板。')
             reply += part
         result = json.loads(reply.split(b'\n', 1)[0])
@@ -76,15 +76,35 @@ def request_login(domain, username, alias, save_alias, clear_after, idle_seconds
     request = validate_login({'op': 'login', 'domain': domain, 'username': username,
                               'alias': alias, 'save_alias': save_alias, 'clear_after': clear_after,
                               'idle_seconds': idle_seconds, 'display': display, 'display_seconds': display_seconds})
+    retire_incompatible_broker()
+    return dispatch(request)
+
+
+def request_catalog(domain, mode, idle_seconds):
+    request = validate_catalog({'op': 'catalog', 'mode': mode, 'domain': domain,
+                                'idle_seconds': idle_seconds})
+    retire_incompatible_broker()
+    return dispatch(request)
+
+
+def request_selected(domain, identity, clear_after, idle_seconds, display, display_seconds):
+    request = validate_select({'op': 'select', 'domain': domain, 'identity': identity,
+                               'clear_after': clear_after, 'idle_seconds': idle_seconds,
+                               'display': display, 'display_seconds': display_seconds})
+    retire_incompatible_broker()
+    return dispatch(request)
+
+
+def retire_incompatible_broker():
+    """Replace a pre-catalog broker before sending a new protocol operation."""
     try:
         info = metadata(data_dir())
-        if not info.get('interactive') or not info.get('lazy_otp') or not info.get('lazy_passwords') or not info.get('credential_cache'):
-            result = lock_session()  # retire an older broker before sending a new operation
+        if not info.get('alfred_catalog') or not info.get('performance_v1'):
+            result = lock_session()
             if not result['ok']:
-                return result
+                raise BridgeError(result['message'])
     except Unavailable:
         pass
-    return dispatch(request)
 
 
 def dispatch(request):

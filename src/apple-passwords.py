@@ -5,6 +5,7 @@ import os
 import json
 from pathlib import Path
 import signal
+import subprocess
 import sys
 from urllib.parse import urlsplit
 
@@ -12,11 +13,12 @@ from urllib.parse import urlsplit
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))  # -I ignores user Python paths; only our bundled modules are added.
 from passwords_bridge.browser import BridgeError
-from passwords_bridge.client import request_copy, request_login, lock_session
-from passwords_bridge.extension import setup
+from passwords_bridge.client import request_catalog, request_copy, request_login, request_selected, lock_session
+from passwords_bridge.extension import data_dir, setup
 from passwords_bridge.aliases import AliasStore
 from passwords_bridge.local_ui import LocalUI
-from passwords_bridge.menu import menu, validate_action
+from passwords_bridge.menu import catalog_menu, menu, validate_action
+from passwords_bridge.performance import stats_menu
 
 
 def parse_query(query):
@@ -37,7 +39,8 @@ def parse_query(query):
             raise ValueError
     except (ValueError, UnicodeError):
         raise BridgeError("请输入有效的网站域名或 http/https 链接。") from None
-    # Query arguments are never shell code. The remainder is one exact username.
+    # Query arguments are never shell code. Copy requests use the remainder as an
+    # exact username; Alfred catalog requests use it only as local filter text.
     return host.rstrip("."), parts[1].strip() if len(parts) == 2 else ""
 
 
@@ -71,11 +74,80 @@ def display_settings():
     return show, seconds
 
 
+def catalog_query(query):
+    raw = query.strip()
+    mode, forced = 'password', False
+    if raw.startswith('codes '):
+        mode, raw, forced = 'otp', raw[6:].strip(), True
+    elif raw.startswith('site '):
+        raw, forced = raw[5:].strip(), True
+    if not raw:
+        return None
+    try:
+        domain, needle = parse_query(raw)
+    except BridgeError:
+        if forced:
+            raise
+        return None
+    if not forced and '.' not in domain and domain != 'localhost':
+        return None
+    return domain, needle, mode
+
+
+def direct_menu(query, store=None):
+    if query.strip() == 'stats':
+        return stats_menu(data_dir() / 'session.log')
+    store = store or AliasStore()
+    candidate = query.strip().lstrip('@').casefold()
+    if candidate and ' ' not in candidate and any(
+            record['name'].casefold() == candidate for record in store.all()):
+        return menu(query, store)
+    parsed = catalog_query(query)
+    if parsed is None:
+        return menu(query, store)
+    domain, needle, mode = parsed
+    result = request_catalog(domain, mode, idle_seconds())
+    if not result.get('ok'):
+        response = {'items': [{'title': result.get('message', '账号读取失败。'),
+                               'subtitle': 'Alfred 中未返回任何密码或验证码值。',
+                               'valid': False}]}
+        if '已有复制操作' in result.get('message', ''):
+            response['rerun'] = .5
+        return response
+    if (result.get('mode') not in ('password', 'otp') or
+            not isinstance(result.get('accounts'), list) or
+            type(result.get('fallback')) is not bool):
+        raise BridgeError('账号列表响应格式无效。')
+    return catalog_menu(domain, result['accounts'], needle, result['mode'], result['fallback'])
+
+
+def open_alfred_search(query):
+    keyword = os.environ.get('passwordkeyword', 'pass').strip() or 'pass'
+    script = '''on run argv
+tell application id "com.runningwithcrayons.Alfred" to search (item 1 of argv)
+end run'''
+    result = subprocess.run(['/usr/bin/osascript', '-e', script, keyword + ' ' + query],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, timeout=10)
+    if result.returncode:
+        raise BridgeError('无法重新打开 Alfred 搜索，请直接输入 ' + keyword + ' ' + query)
+
+
 def interactive(action):
     action = validate_action(action)
     kind = action['action']
     if kind == 'setup': return run('pair', '')
     if kind == 'lock': return run('lock', '')
+    if kind == 'search':
+        open_alfred_search(action['query'])
+        return True, ''
+    if kind == 'select':
+        domain, remainder = parse_query(action['domain'])
+        if remainder:
+            raise BridgeError('账号选择网站无效。')
+        show, duration = display_settings()
+        result = request_selected(domain, action['identity'], clear_seconds(), idle_seconds(), show, duration)
+        return result['ok'], result['message']
     ui = LocalUI()
     if kind == 'help':
         ui.message('Passwords Quick Copy', 'pass 网站域名：选择账号，复制密码后可继续复制验证码。\npass 别名：使用已保存账号。\n复制窗口可设置别名。\npass alias：查看、重命名或删除别名。\npass lock：锁定会话。')
@@ -127,7 +199,7 @@ def main(argv=None):
             return serve()
         if args[:1] == ['--menu']:
             try:
-                result = menu(args[1] if len(args) > 1 else '')
+                result = direct_menu(args[1] if len(args) > 1 else '')
             except BridgeError as error:
                 result = {'items': [{'title': str(error), 'valid': False}]}
             except Exception:

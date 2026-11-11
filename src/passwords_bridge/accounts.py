@@ -24,6 +24,27 @@ def identity_key(identity):
     return json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
 
+def validate_identity(identity):
+    """Validate metadata that may have made a round trip through Alfred."""
+    if not isinstance(identity, dict) or set(identity) != {'kind', 'username', 'title', 'sites'}:
+        raise BridgeError('账号标识格式无效。')
+    if identity['kind'] not in ('password', 'otp'):
+        raise BridgeError('账号类型无效。')
+    for key, limit in (('username', 1024), ('title', 300)):
+        value = identity[key]
+        if not isinstance(value, str) or len(value) > limit or any(ord(char) < 32 for char in value):
+            raise BridgeError('账号标识格式无效。')
+    sites = identity['sites']
+    if (not isinstance(sites, list) or not 1 <= len(sites) <= 64 or
+            any(not isinstance(site, str) or not site or len(site) > 2048 or
+                any(ord(char) < 32 for char in site) for site in sites) or
+            sum(len(site) for site in sites) > 8192 or
+            sites != sorted(set(sites))):
+        raise BridgeError('账号网站标识无效。')
+    return {'kind': identity['kind'], 'username': identity['username'],
+            'title': identity['title'], 'sites': list(sites)}
+
+
 @dataclass
 class Account:
     identity: dict
@@ -66,9 +87,6 @@ def account_list(entries, kind, domain, username='', metadata_only=False):
             continue
         if kind == 'password' and user == 'Passwords\xa0not\xa0saved':
             continue
-        if metadata_only and kind == 'password' and entry.get('PWD') not in ('Not Included', None, ''):
-            # Even in metadata mode, drop non-saved marker entries; if a real PWD is present, still strip it.
-            pass
         if metadata_only and kind == 'password' and entry.get('PWD') not in ('Not Included', None) and not isinstance(entry.get('PWD'), str):
             continue
         if not metadata_only and (not isinstance(value, str) or not value or value == 'Not Included'):

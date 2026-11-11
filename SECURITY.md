@@ -1,22 +1,22 @@
-# Security scope of version 0.8.2
+# Security scope of version 0.8.3
 
 This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.8.2 behavior |
+| Boundary | Version 0.8.3 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
 | Session lifetime | 5 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
 | Lock handling | Native screen-lock, session-inactive, and sleep notifications plus console-state checks; monitoring failure closes access |
-| Client IPC | Copy/login/status/stop only; mode-0600 Unix socket and random per-session token in a mode-0700 directory; same OS user required |
-| Credential delivery | Copied inside the broker; no plaintext credential response over the client socket |
+| Client IPC | Copy/login/catalog/select/status/stop only; mode-0600 Unix socket and random per-session token in a mode-0700 directory; same OS user required |
+| Credential delivery | Account metadata may return for Alfred results; secrets are copied inside the broker and never returned over the client socket |
 | Operation scope | Validated type/domain/username per request; scope cleared between requests; no raw native command or evaluation endpoint |
 | Manual control | `pwlock` cancels an in-flight operation and waits for shutdown |
 | Idle accounting | Valid copy attempts refresh idle time; status and worker keepalive do not; active pairing is not interrupted by idle time |
 | Extension | Exact pinned archive hash; explicit setup; no silent runtime replacement |
 | Clipboard | Concealed/transient markers and generation-based timed clearing; cleanup retains no credential |
-| Account UI | Searchable native list shows username/title/sites; aliases bind exact metadata, not a result index or password hash |
+| Account UI | Searchable Alfred results show username/title/sites; aliases and selected results bind exact metadata, not a result index or password hash |
 | Manual-entry display | Explicitly requested plaintext appears in a transient native floating window; no Notification Center record; can be disabled |
 
 The broker serializes copies, rechecks lock/lifetime during browser waits and
@@ -25,10 +25,13 @@ needs a more specific username can retain pairing. Cancelled pairing, protocol
 failure, or a disconnected browser discards that browser. Apple can invalidate
 pairing independently; the next copy must pair again.
 
-The unified login flow queries account metadata first (`cmd 4` for login names
-and `cmd 16` for OTP metadata), which does not trigger macOS Touch ID. Only the
-selected account's password is read via `cmd 5` after selection (or immediately
-for a bound password alias), and once read it is cached in broker memory for the
+The default Alfred search queries password metadata first (`cmd 4` for login
+names), which does not trigger macOS Touch ID, and returns that metadata—not
+secret values—to Alfred's result list. OTP metadata (`cmd 16`) is deferred until
+the user asks for verification-code accounts or presses the OTP control; it is
+queried automatically only when no password account exists. Only the selected
+account's password is read via `cmd 5` after selection (or immediately for a
+bound password alias), and once read it is cached in broker memory for the
 duration of the active session (cleared on idle expiry, screen lock, sleep,
 session invalidation, or `pwlock`) so repeated copies of the same account or
 switching back from OTP do not re-trigger Touch ID. A Refresh Password action in
@@ -74,8 +77,11 @@ broker parent dies. Broker exit closes Chrome's command pipe, which causes Chrom
 to exit. Normal shutdown removes runtime socket/token and browser profile;
 a force kill can leave temporary files. Startup is protected by a singleton lock.
 
-Logs contain fixed lifecycle event names and timestamps only. Session metadata
-contains a PID and token, not Apple passwords or PINs. The original standalone
+Logs contain allowlisted lifecycle/performance phase names, timestamps, and
+integer milliseconds only. They never contain domains, usernames, helper
+responses, or secret values. `pass stats` computes local recent average/P95
+summaries from those records. Session metadata contains a PID and token, not
+Apple passwords or PINs. The original standalone
 `otp`/`otpadd` keychain paths remain separate and are not covered by claims about
 the Apple Passwords broker.
 

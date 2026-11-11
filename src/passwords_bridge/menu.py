@@ -2,7 +2,7 @@
 
 import json
 
-from .accounts import display_text
+from .accounts import Account, display_text, validate_identity
 from .aliases import AliasStore, alias_name
 from .browser import BridgeError
 
@@ -20,6 +20,51 @@ def alias_item(record):
         'alt': {'arg': json.dumps({'action': 'remove', 'name': record['name']}), 'subtitle': '删除别名（不删除密码）'},
     }
     return item
+
+
+def catalog_menu(domain, records, needle='', mode='password', fallback=False):
+    """Render secret-free account metadata directly in Alfred."""
+    if mode not in ('password', 'otp'):
+        raise BridgeError('账号列表类型无效。')
+    terms = needle.casefold().split()
+    items = []
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {'identity', 'duplicate'} or type(record['duplicate']) is not bool:
+            continue
+        try:
+            identity = validate_identity(record['identity'])
+        except BridgeError:
+            continue
+        account = Account(identity, '', record['duplicate'])
+        searchable = ' '.join([account.label, account.username, *account.sites,
+                               '密码' if account.kind == 'password' else '验证码']).casefold()
+        if not all(term in searchable for term in terms):
+            continue
+        row = account.row(len(items))
+        item = {
+            'title': row['title'],
+            'subtitle': row['username'] + ' · ' + row['sites'],
+            'match': searchable,
+            'valid': not account.duplicate,
+        }
+        if not account.duplicate:
+            item['arg'] = json.dumps({'action': 'select', 'domain': domain, 'identity': identity},
+                                     ensure_ascii=False)
+        items.append(item)
+    if not items:
+        items.append({
+            'title': '没有匹配的密码账号' if mode == 'password' else '没有匹配的验证码账号',
+            'subtitle': '可继续修改 Alfred 输入框中的搜索词。',
+            'valid': False,
+        })
+    if mode == 'password':
+        switch = ('codes ' + domain, '显示仅验证码的账号',
+                  '按需读取验证码元数据，不阻塞密码搜索结果')
+        items.append(action_item(switch[1], switch[2], 'search', query=switch[0]))
+    elif not fallback:
+        items.append(action_item('返回密码账号', '密码账号使用更快的默认搜索',
+                                 'search', query=domain))
+    return {'items': items}
 
 
 def menu(query, store=None):
@@ -60,7 +105,7 @@ def menu(query, store=None):
         parts = query.split(maxsplit=1)
         name, remainder = parts[0], (' ' + parts[1] if len(parts) == 2 else '')
         if '.' in name or '://' in name or ':' in name:
-            items.insert(0, action_item('查询 ' + display_text(query), '选账号 → 复制密码 → 按需取验证码', 'login', query=query))
+            items.insert(0, action_item('查询 ' + display_text(query), '直接在 Alfred 中显示账号', 'search', query=query))
         else:
             # Alias matches keep priority. Every inferred site is shown in full
             # before Enter; a short brand name is not a whole-vault search API.
@@ -69,8 +114,9 @@ def menu(query, store=None):
             for domain in domains:
                 items.append(action_item('查询 ' + display_text(domain + remainder),
                     '已知网站' if domain in known else '短名称补全为 .com；其他后缀可直接输入完整域名',
-                    'login', query=domain + remainder))
-            items.append(action_item('查询原样名称 ' + display_text(query), '用于内网或单段主机名，不自动补后缀', 'login', query=query))
+                    'search', query=domain + remainder))
+            items.append(action_item('查询原样名称 ' + display_text(query), '用于内网或单段主机名，不自动补后缀',
+                                     'search', query='site ' + query))
     if not query:
         items += [action_item('查找网站账号…', '输入网站后显示可搜索的账号列表', 'prompt'),
                   action_item('准备扩展', '首次使用时运行一次', 'setup'),
@@ -87,9 +133,16 @@ def menu(query, store=None):
 def validate_action(action):
     if not isinstance(action, dict) or not isinstance(action.get('action'), str):
         raise BridgeError('操作格式无效。')
+    if action['action'] == 'select':
+        if set(action) != {'action', 'domain', 'identity'} or not isinstance(action['domain'], str):
+            raise BridgeError('账号选择操作格式无效。')
+        action = dict(action)
+        action['identity'] = validate_identity(action['identity'])
+        return action
     allowed = {
         'login': ({'action', 'query'}, {'action', 'alias'}),
         'bind': ({'action', 'name', 'query'},),
+        'search': ({'action', 'query'},),
         'rename': ({'action', 'name'}, {'action', 'name', 'new'}),
         'remove': ({'action', 'name'},),
         'prompt': ({'action'},), 'setup': ({'action'},), 'lock': ({'action'},), 'help': ({'action'},),
