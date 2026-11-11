@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.8.0")
+VERSION = os.environ.get("VERSION", "0.8.1")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -214,9 +214,10 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
+* `pass github` shows a visible `github.com` completion and an original-host option; alias matches keep priority.
 * `pass github.com [username]`: search the account list, select one, and copy its password first.
 * The copied value appears in a temporary native window for manual typing. Click \
-Copy Verification Code when ready; its code is fetched again at copy time.
+Copy Verification Code when ready; its value is read only then. Initial discovery uses metadata, not OTP values.
 * Use Set Alias in the window, then `pass gh-work` to reuse that exact account.
 * `pass alias`: list aliases; Command-Return renames, Option-Return removes an alias.
 * `pass alias add gh-work github.com [username]`: bind an alias without copying a secret.

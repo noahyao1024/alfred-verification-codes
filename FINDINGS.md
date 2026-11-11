@@ -1,5 +1,10 @@
 # Earlier Passwords UI automation findings
 
+Update for 0.8.1: short names now have explicit domain-completion/original-host
+query actions. OTP discovery uses the native metadata-only command; value reads
+are deferred until needed. A pairing event in our log does not count or explain
+all macOS Touch ID prompts, so no one-prompt guarantee is implied.
+
 Update for 0.8.0: the unified `pass` entry now uses a native account picker,
 metadata-only aliases, staged password/OTP copying, and optional transient
 plaintext display for manual typing. These changes do not restore Passwords-app

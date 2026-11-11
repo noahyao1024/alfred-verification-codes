@@ -52,5 +52,10 @@ function fixture(operation = 'password') {
     const code = fixture('otp');
     assert.equal((await code.request(pw)).status, 2);
     assert.equal((await code.request(otp)).data.STATUS, 0);
+    const listing = fixture('otp_list');
+    const metadata = {cmd: 16, qid: 'CmdDidFillOneTimeCode', body: {ACT: 5, TYPE: 'oneTimeCodes', frameURLs: ['https://example.com']}};
+    assert.equal((await listing.request(otp)).status, 2);
+    assert.equal((await listing.request(metadata)).data.STATUS, 0);
+    assert.equal((await listing.request({...metadata, body: {...metadata.body, frameURLs: ['https://other.example']}})).status, 2);
     console.log('Bridge policy tests passed');
 })().catch(error => {console.error(error); process.exitCode = 1;});

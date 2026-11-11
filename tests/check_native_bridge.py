@@ -102,6 +102,14 @@ class NativeReuseTests(unittest.TestCase):
 
 
 class NativeBridgeTests(unittest.TestCase):
+    def test_metadata_scope_is_read_only_and_still_requires_pairing(self):
+        with PasswordSession('example.invalid', 'fixture-user', 'otp_list') as session:
+            metadata = {'cmd': 16, 'qid': 'CmdDidFillOneTimeCode',
+                        'body': {'ACT': 5, 'TYPE': 'oneTimeCodes', 'frameURLs': ['https://example.invalid']}}
+            self.assertEqual(session.request(metadata)['status'], 9)
+            metadata['cmd'], metadata['body']['ACT'] = 17, 2
+            self.assertEqual(session.request(metadata)['status'], 2)
+
     def test_account_picker_modal_search_and_selection(self):
         script = Path(__file__).resolve().parents[1] / 'src/passwords_bridge/local_ui.js'
         result = subprocess.run(['/usr/bin/osascript', '-l', 'JavaScript', str(script), '--smoke'],

@@ -106,6 +106,15 @@ class FrontendTests(unittest.TestCase):
 
 
 class ResultTests(unittest.TestCase):
+    def test_metadata_listing_uses_native_ghost_search(self):
+        owned = session.PasswordSession('example.com', 'alice', 'otp_list')
+        with patch.object(owned, 'request', return_value={'data': {'STATUS': 0, 'Entries': []}}) as sender:
+            self.assertEqual(owned.entries('otp_list'), [])
+        request = sender.call_args.args[0]
+        self.assertEqual(request['cmd'], 16)
+        self.assertEqual(request['body']['ACT'], 5)
+        self.assertEqual(request['body']['frameURLs'], ['https://example.com'])
+
     def test_password_formats_and_exact_username(self):
         rows = [{"USR": "alice", "PWD": "FAKE-A"}, {"USR": "bob", "PWD": "FAKE-B"}]
         self.assertEqual(session.select_secret({"data": {"STATUS": 0, "Entries": rows}}, "password", "bob"), "FAKE-B")

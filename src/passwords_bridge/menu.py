@@ -56,8 +56,21 @@ def menu(query, store=None):
     exact = [record for record in matches if record['name'].casefold() == needle.casefold()]
     matches = exact + [record for record in matches if record not in exact]
     items = [alias_item(record) for record in matches]
-    if not alias_mode and query and not query.startswith('@') and ('.' in query.split()[0] or '://' in query):
-        items.insert(0, action_item('查询 ' + display_text(query), '选账号 → 复制密码 → 可继续复制验证码；弹窗便于手打', 'login', query=query))
+    if not alias_mode and query and not query.startswith('@'):
+        parts = query.split(maxsplit=1)
+        name, remainder = parts[0], (' ' + parts[1] if len(parts) == 2 else '')
+        if '.' in name or '://' in name or ':' in name:
+            items.insert(0, action_item('查询 ' + display_text(query), '选账号 → 复制密码 → 按需取验证码', 'login', query=query))
+        else:
+            # Alias matches keep priority. Every inferred site is shown in full
+            # before Enter; a short brand name is not a whole-vault search API.
+            known = sorted({record['domain'] for record in records if name.casefold() in record['domain'].casefold()})
+            domains = known + ([name + '.com'] if name + '.com' not in known and name != 'localhost' else [])
+            for domain in domains:
+                items.append(action_item('查询 ' + display_text(domain + remainder),
+                    '已知网站' if domain in known else '短名称补全为 .com；其他后缀可直接输入完整域名',
+                    'login', query=domain + remainder))
+            items.append(action_item('查询原样名称 ' + display_text(query), '用于内网或单段主机名，不自动补后缀', 'login', query=query))
     if not query:
         items += [action_item('查找网站账号…', '输入网站后显示可搜索的账号列表', 'prompt'),
                   action_item('准备扩展', '首次使用时运行一次', 'setup'),

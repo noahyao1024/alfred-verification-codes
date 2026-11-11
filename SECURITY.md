@@ -1,10 +1,10 @@
-# Security scope of version 0.8
+# Security scope of version 0.8.1
 
 This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.8 behavior |
+| Boundary | Version 0.8.1 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
 | Session lifetime | 5 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
@@ -27,11 +27,18 @@ pairing independently; the next copy must pair again.
 
 The unified login flow holds the current query results only in broker memory
 while the user chooses an account. It copies the password first and requires a
-separate user action before replacing it with an OTP. Codes are fetched again
-after selection, so prefetch/picker delay does not cause a cached code to be copied.
+separate user action before replacing it with an OTP. Discovery uses metadata-only
+OTP listing; the selected code value is read after confirmation, once for a unique
+factor. An unsupported metadata API only falls back to value queries on explicit
+OTP access or when no passwords exist. No biometric check is disabled, and no
+claim is made about how many system Touch ID prompts Apple will show.
 OTP matching never falls back to another username; broader-domain or multiple
 matches require explicit selection. Indistinguishable metadata duplicates are
 refused, as the protocol does not provide a stable identifier we can rely on.
+
+OTP metadata may omit the optional source/title field. That omission is tolerated
+only when username and sites resolve to one factor; multiple matches still fail.
+Existing nonempty source bindings remain specific.
 
 Aliases store only whitelisted account metadata in a mode-0600 JSON file. They
 contain no password, code, seed, or secret-derived identifier. Renamed or duplicated

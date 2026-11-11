@@ -79,7 +79,10 @@
     const otpRead = CONFIG.operation === "otp" && message.cmd === 17 && message.qid === "CmdDidFillOneTimeCode" &&
       body.ACT === 2 && body.TYPE === "oneTimeCodes" && Array.isArray(body.frameURLs) &&
       body.frameURLs.length === 1 && body.frameURLs[0] === "https://" + CONFIG.domain;
-    if (!CONFIG.domain || !(passwordRead || otpRead))
+    const otpList = CONFIG.operation === "otp_list" && message.cmd === 16 && message.qid === "CmdDidFillOneTimeCode" &&
+      body.ACT === 5 && body.TYPE === "oneTimeCodes" && Array.isArray(body.frameURLs) &&
+      body.frameURLs.length === 1 && body.frameURLs[0] === "https://" + CONFIG.domain;
+    if (!CONFIG.domain || !(passwordRead || otpRead || otpList))
       return { status: INVALID_PARAM, error: "operation not permitted" };
 
     // Validate before touching the crypto or native layers.

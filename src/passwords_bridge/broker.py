@@ -102,6 +102,7 @@ class SessionManager:
             self.session.__enter__()
         self.session.set_scope(domain, username, mode)
         if not self.session.state().get('paired'):
+            self.log('pair_requested')
             self.session.pair()
             self.log('paired')
 
@@ -259,7 +260,7 @@ def metadata_write(root, token):
     fd, temporary = tempfile.mkstemp(prefix='session-meta-', dir=str(root))
     try:
         with os.fdopen(fd, 'w') as stream:
-            json.dump({'v': PROTOCOL, 'pid': os.getpid(), 'token': token, 'interactive': True}, stream)
+            json.dump({'v': PROTOCOL, 'pid': os.getpid(), 'token': token, 'interactive': True, 'lazy_otp': True}, stream)
         os.replace(temporary, root / 'session.json')
     finally:
         Path(temporary).unlink(missing_ok=True)

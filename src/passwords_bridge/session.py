@@ -15,7 +15,7 @@ from .extension import EXTENSION_ID, NATIVE_MANIFEST, data_dir, prepare
 class PasswordSession:
     def __init__(self, domain, username="", mode="password", guard=None):
         self.domain, self.username = domain, username
-        if mode not in ("password", "otp"):
+        if mode not in ("password", "otp", "otp_list"):
             raise BridgeError("不支持的读取类型。")
         self.mode = mode
         self.guard = guard
@@ -69,7 +69,7 @@ class PasswordSession:
         return self.browser.evaluate("globalThis.__passwordsBridge.state()", self.worker, timeout=3)
 
     def set_scope(self, domain, username, mode):
-        if mode not in ('password', 'otp'):
+        if mode not in ('password', 'otp', 'otp_list'):
             raise BridgeError('不支持的读取类型。')
         self.domain, self.username, self.mode = domain, username, mode
         scope = json.dumps({'domain': domain, 'username': username, 'operation': mode})
@@ -133,9 +133,10 @@ return text returned of answer'''
             message = {"cmd": 5, "qid": "CmdGetPassword4LoginName", "tabId": 0, "frameId": 0,
                        "url": self.domain,
                        "body": {"ACT": 2, "URL": self.domain, "USR": self.username}}
-        elif mode == "otp":
-            message = {"cmd": 17, "qid": "CmdDidFillOneTimeCode", "tabId": 0, "frameId": 0,
-                       "body": {"ACT": 2, "TYPE": "oneTimeCodes", "frameURLs": ["https://" + self.domain]}}
+        elif mode in ("otp", "otp_list"):
+            metadata_only = mode == 'otp_list'
+            message = {"cmd": 16 if metadata_only else 17, "qid": "CmdDidFillOneTimeCode", "tabId": 0, "frameId": 0,
+                       "body": {"ACT": 5 if metadata_only else 2, "TYPE": "oneTimeCodes", "frameURLs": ["https://" + self.domain]}}
         else:
             raise BridgeError("不支持的读取类型。")
         return self.request(message)

@@ -55,16 +55,16 @@ class Account:
                 'kind': self.kind}
 
 
-def account_list(entries, kind, domain, username=''):
+def account_list(entries, kind, domain, username='', metadata_only=False):
     result = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
         user = entry.get('USR' if kind == 'password' else 'username', '')
-        value = entry.get('PWD' if kind == 'password' else 'code')
+        value = '' if metadata_only else entry.get('PWD' if kind == 'password' else 'code')
         if not isinstance(user, str) or (username and user != username):
             continue
-        if not isinstance(value, str) or not value or value == 'Not Included':
+        if not metadata_only and (not isinstance(value, str) or not value or value == 'Not Included'):
             continue
         if kind == 'password':
             sites = entry.get('sites') or [domain]
@@ -90,6 +90,18 @@ def resolve_identity(accounts, identity):
     matches = [item for item in accounts if item.identity == identity]
     if len(matches) != 1 or matches[0].duplicate:
         raise CredentialLookupError('绑定的账号已变化或存在同名重复项，请按网站重新选择并更新别名。')
+    return matches[0]
+
+
+def resolve_otp_metadata(accounts, identity):
+    # Apple's metadata response can omit `source`, which supplies our title.
+    # Ignore only that absent optional field; never ignore username/site or pick
+    # among multiple matching factors. Stored full aliases still use exact identity.
+    matches = [item for item in accounts if item.kind == 'otp' and
+               item.username == identity['username'] and item.sites == identity['sites'] and
+               (not identity['title'] or item.identity['title'] == identity['title'])]
+    if len(matches) != 1 or matches[0].duplicate:
+        raise CredentialLookupError('验证码账号已变化或存在多条匹配，请重新选择并核对。')
     return matches[0]
 
 

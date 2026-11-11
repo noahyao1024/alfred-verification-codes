@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from passwords_bridge import broker, client
-from passwords_bridge.accounts import account_list, resolve_identity
+from passwords_bridge.accounts import account_list, resolve_identity, resolve_otp_metadata
 from passwords_bridge.aliases import AliasStore, AliasExists
 from passwords_bridge.browser import BridgeError
 from passwords_bridge.menu import menu, validate_action
@@ -39,10 +39,15 @@ class CatalogSession(FakeSession):
     passwords = PASSWORDS
     codes = [{'username': 'alice', 'domain': 'example.com', 'code': '111111'}]
     otp_queries = 0
+    otp_metadata_queries = 0
     def entries(self, kind):
         user = self.scope[1]
         if kind == 'password':
             return [dict(row) for row in self.passwords if not user or row['USR'] == user]
+        if kind == 'otp_list':
+            self.otp_metadata_queries += 1
+            return [{key: value for key, value in row.items() if key != 'code'} for row in self.codes
+                    if not user or row['username'] == user]
         self.otp_queries += 1
         return [dict(row, code=str(self.otp_queries).zfill(6)) for row in self.codes
                 if not user or row['username'] == user]
@@ -87,6 +92,8 @@ class FlowTests(unittest.TestCase):
         self.assertTrue(self.ui.panels[0][2])
         self.assertNotIn('SECRET-', json.dumps(result))
         self.assertIsNone(self.instances[0].scope)
+        self.assertEqual(self.instances[0].otp_queries, 0)
+        self.assertEqual(self.instances[0].otp_metadata_queries, 1)
 
     def test_selected_account_not_first_account_is_copied(self):
         self.ui = UI(choices=[1])
@@ -97,19 +104,20 @@ class FlowTests(unittest.TestCase):
     def test_otp_is_fetched_after_confirmation_and_not_from_prefetch(self):
         self.ui = UI(actions=['otp', 'done'])
         self.manager.login(login_request())
-        self.assertEqual(self.copies, ['SECRET-ALICE', '000003'])
+        self.assertEqual(self.copies, ['SECRET-ALICE', '000001'])
         self.assertEqual(len(self.ui.pickers), 1)  # one exact OTP needs no second account prompt
         self.assertEqual(self.instances[0].pairs, 1)
+        self.assertEqual(self.instances[0].otp_queries, 1)
 
     def test_otp_refresh_fetches_another_current_value(self):
         self.ui = UI(actions=['otp', 'refresh', 'done'])
         self.manager.login(login_request())
-        self.assertEqual(self.copies, ['SECRET-ALICE', '000003', '000004'])
+        self.assertEqual(self.copies, ['SECRET-ALICE', '000001', '000002'])
 
     def test_otp_only_account_is_listed_and_copied(self):
         self.factory.passwords = []
         self.manager.login(login_request())
-        self.assertEqual(self.copies, ['000002'])
+        self.assertEqual(self.copies, ['000001'])
         self.assertEqual(self.ui.panels[0][0], 'otp')
 
     def test_other_user_otp_never_overwrites_password(self):
@@ -170,6 +178,67 @@ class FlowTests(unittest.TestCase):
         result = self.manager.login(login_request())
         self.assertTrue(result['ok'])
         self.assertEqual(self.copies, [])
+        self.assertEqual(self.instances[0].otp_queries, 0)
+
+    def test_otp_alias_reads_code_once_without_password_scan(self):
+        self.factory.passwords = []
+        self.manager.login(login_request(save_alias='code'))
+        self.assertEqual(self.instances[0].otp_queries, 0)
+        self.ui = UI()
+        self.manager.login(login_request(domain='', alias='code'))
+        self.assertEqual(self.copies, ['000001'])
+        self.assertEqual(self.instances[0].otp_queries, 1)
+
+    def test_metadata_can_omit_optional_source_without_losing_binding(self):
+        self.factory.passwords = []
+        self.factory.codes = [{'username': 'alice', 'domain': 'example.com', 'source': 'Personal', 'code': 'unused'}]
+        original = self.factory.entries
+        def entries(instance, kind):
+            result = original(instance, kind)
+            if kind == 'otp_list':
+                return [{key: value for key, value in row.items() if key != 'source'} for row in result]
+            return result
+        self.factory.entries = entries
+        self.manager.login(login_request(save_alias='code'))
+        self.manager.login(login_request(domain='', alias='code'))
+        self.assertEqual(self.copies, ['000001'])
+
+    def test_metadata_never_retains_or_copies_a_code_value(self):
+        rows = account_list([{'username': 'alice', 'domain': 'example.com', 'code': 'DO-NOT-RETAIN'}],
+                            'otp', 'example.com', metadata_only=True)
+        self.assertEqual(rows[0].value, '')
+        from passwords_bridge.login_flow import LoginFlow
+        flow = LoginFlow(self.manager, self.store, login_request(), self.ui)
+        with self.assertRaises(CredentialLookupError): flow.copy(rows[0])
+        self.assertEqual(self.copies, [])
+
+    def test_missing_source_does_not_allow_ambiguous_factor_selection(self):
+        codes = account_list([{'username': 'alice', 'domain': 'example.com', 'source': 'A', 'code': '111111'},
+                              {'username': 'alice', 'domain': 'example.com', 'source': 'B', 'code': '222222'}],
+                             'otp', 'example.com')
+        identity = {'kind': 'otp', 'username': 'alice', 'sites': ['example.com'], 'title': ''}
+        with self.assertRaises(CredentialLookupError): resolve_otp_metadata(codes, identity)
+
+    def test_unsupported_metadata_does_not_eagerly_read_otp(self):
+        original = self.factory.entries
+        def entries(instance, kind):
+            if kind == 'otp_list': raise BridgeError('metadata unavailable')
+            return original(instance, kind)
+        self.factory.entries = entries
+        self.manager.login(login_request())
+        self.assertEqual(self.copies, ['SECRET-ALICE'])
+        self.assertEqual(self.instances[0].otp_queries, 0)
+
+    def test_unsupported_metadata_falls_back_only_after_otp_click(self):
+        original = self.factory.entries
+        def entries(instance, kind):
+            if kind == 'otp_list': raise BridgeError('metadata unavailable')
+            return original(instance, kind)
+        self.factory.entries = entries
+        self.ui = UI(actions=['otp', 'done'])
+        self.manager.login(login_request())
+        self.assertEqual(self.copies, ['SECRET-ALICE', '000001'])
+        self.assertEqual(self.instances[0].otp_queries, 1)
 
 
 class AliasAndMenuTests(unittest.TestCase):
@@ -213,6 +282,22 @@ class AliasAndMenuTests(unittest.TestCase):
         for action in ({'action': 'eval', 'script': 'bad'}, {'action': 'login', 'query': 'a', 'password': 'SECRET'}):
             with self.assertRaises(BridgeError): validate_action(action)
 
+    def test_short_name_offers_visible_com_completion_and_original_host(self):
+        items = menu('github alice', self.store)['items']
+        actions = [json.loads(item['arg']) for item in items if 'arg' in item]
+        self.assertEqual(actions[0], {'action': 'login', 'query': 'github.com alice'})
+        self.assertIn({'action': 'login', 'query': 'github alice'}, actions)
+        self.assertIn('github.com', items[0]['title'])
+
+    def test_alias_matches_keep_priority_over_short_name_completion(self):
+        self.store.put('work', self.binding)
+        self.assertEqual(json.loads(menu('work', self.store)['items'][0]['arg']), {'action': 'login', 'alias': 'work'})
+        self.assertEqual(json.loads(menu('@work', self.store)['items'][0]['arg']), {'action': 'login', 'alias': 'work'})
+
+    def test_other_suffix_and_localhost_are_not_forced_to_com(self):
+        self.assertEqual(json.loads(menu('example.org', self.store)['items'][0]['arg'])['query'], 'example.org')
+        self.assertEqual(json.loads(menu('localhost', self.store)['items'][0]['arg'])['query'], 'localhost')
+
 
 @unittest.skipUnless(sys.platform == 'darwin', 'AppKit and Darwin peer credentials required')
 class InteractiveNativeTests(unittest.TestCase):
@@ -237,9 +322,9 @@ class InteractiveNativeTests(unittest.TestCase):
                 self.assertTrue(ready.wait(5))
                 reply = client.rpc(login_request(), Path(root))
                 self.assertTrue(reply['ok'])
-                self.assertEqual(copies, ['SECRET-ALICE', '000003'])
+                self.assertEqual(copies, ['SECRET-ALICE', '000001'])
                 self.assertNotIn('SECRET-', json.dumps(reply))
-                self.assertNotIn('000003', json.dumps(reply))
+                self.assertNotIn('000001', json.dumps(reply))
                 self.assertNotIn('SECRET-', (Path(root) / 'session.log').read_text())
             finally:
                 try: client.rpc({'op': 'stop'}, Path(root))

@@ -569,8 +569,9 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
+* `pass github` shows a visible `github.com` completion and an original-host option; alias matches keep priority.
 * `pass github.com [username]`: search the account list, select one, and copy its password first.
-* The copied value appears in a temporary native window for manual typing. Click Copy Verification Code when ready; its code is fetched again at copy time.
+* The copied value appears in a temporary native window for manual typing. Click Copy Verification Code when ready; its value is read only then. Initial discovery uses metadata, not OTP values.
 * Use Set Alias in the window, then `pass gh-work` to reuse that exact account.
 * `pass alias`: list aliases; Command-Return renames, Option-Return removes an alias.
 * `pass alias add gh-work github.com [username]`: bind an alias without copying a secret.
@@ -938,7 +939,7 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 	<key>variablesdontexport</key>
 	<array/>
 	<key>version</key>
-	<string>0.8.0</string>
+	<string>0.8.1</string>
 	<key>webaddress</key>
 	<string>https://github.com/noahyao1024/alfred-verification-codes</string>
 </dict>

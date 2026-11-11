@@ -41,10 +41,17 @@ Verification Code**; the matching code is fetched again and copied then, without
 immediately overwriting the password after the first step. OTP-only accounts are
 also listed. A broader-domain or multiple-code match asks you to select the code.
 
+Short names also show query actions: `pass github` offers the visible completion
+`github.com` plus an original-host option for single-label/intranet names. Matching
+aliases keep priority; domains already present in aliases can also be suggested.
+Other suffixes such as `.org` and `.io` can be typed directly. This is explicit
+site completion, not a new whole-vault keyword search.
+
 | Alfred input | Result |
 | --- | --- |
 | `pass` | Show saved aliases and actions; Enter on Find Account asks for a website |
 | `pass github.com` | Search the site's account list; select, copy password, then optionally OTP |
+| `pass github` | Choose a visible domain completion or query the original host |
 | `pass github.com me@example.com` | Narrow the account list to this username |
 | `pass gh-work` or `pass @gh-work` | Use the account bound to this alias |
 | `pass alias` | List aliases; Command-Return renames, Option-Return deletes the alias |
@@ -174,6 +181,19 @@ The build fails if the RFC 6238 vectors stop matching. That guard exists because
 this shipped once with a generator that had never been verified.
 
 ## Troubleshooting
+
+**Touch ID and pairing are different events.** The workflow's pairing log cannot
+count macOS biometric prompts. Initial Apple pairing and credential access may
+require separate system confirmations; the workflow cannot promise one Touch ID
+prompt or bypass the system's checks.
+
+Version 0.8.1 removes avoidable reads: account discovery uses Apple's metadata-only
+OTP listing (`cmd 16`, ghost search), and OTP values are read only after the user
+requests them. On the normal metadata path, a selected OTP is read once per copy/refresh. If metadata
+listing is unavailable, value-reading fallback is deferred until an explicit OTP
+request (or when there are no passwords and the user is choosing an OTP-only account).
+Phase logs (`pair_requested`, `paired`, `password_requested`,
+`otp_metadata_requested`, `otp_requested`) contain no account or credential values.
 
 If upgrading from 0.5, stop the old service once with `apwcli daemon stop`.
 The new workflow neither connects to it nor restarts it. Its own bounded session

@@ -77,7 +77,8 @@ def request_login(domain, username, alias, save_alias, clear_after, idle_seconds
                               'alias': alias, 'save_alias': save_alias, 'clear_after': clear_after,
                               'idle_seconds': idle_seconds, 'display': display, 'display_seconds': display_seconds})
     try:
-        if not metadata(data_dir()).get('interactive'):
+        info = metadata(data_dir())
+        if not info.get('interactive') or not info.get('lazy_otp'):
             result = lock_session()  # retire a pre-0.8 broker before sending a new operation
             if not result['ok']:
                 return result
