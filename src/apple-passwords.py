@@ -2,6 +2,7 @@
 """Copy through a bounded local session; no credentials returned over IPC."""
 
 import os
+import json
 from pathlib import Path
 import signal
 import sys
@@ -11,8 +12,11 @@ from urllib.parse import urlsplit
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))  # -I ignores user Python paths; only our bundled modules are added.
 from passwords_bridge.browser import BridgeError
-from passwords_bridge.client import request_copy, lock_session
+from passwords_bridge.client import request_copy, request_login, lock_session
 from passwords_bridge.extension import setup
+from passwords_bridge.aliases import AliasStore
+from passwords_bridge.local_ui import LocalUI
+from passwords_bridge.menu import menu, validate_action
 
 
 def parse_query(query):
@@ -57,6 +61,45 @@ def idle_seconds():
         raise BridgeError('会话空闲时长必须为 30–1800 秒，默认 300 秒。') from None
 
 
+def display_settings():
+    show = os.environ.get('SHOW_SECRETS', '1').strip().lower() in ('1', 'true', 'yes')
+    try:
+        seconds = int(os.environ.get('DISPLAY_SECONDS', '45'))
+        if not 10 <= seconds <= 180: raise ValueError
+    except ValueError:
+        raise BridgeError('明文显示时间必须为 10–180 秒。') from None
+    return show, seconds
+
+
+def interactive(action):
+    action = validate_action(action)
+    kind = action['action']
+    if kind == 'setup': return run('pair', '')
+    if kind == 'lock': return run('lock', '')
+    ui = LocalUI()
+    if kind == 'help':
+        ui.message('Passwords Quick Copy', 'pass 网站域名：选择账号，复制密码后可继续复制验证码。\npass 别名：使用已保存账号。\n复制窗口可设置别名。\npass alias：查看、重命名或删除别名。\npass lock：锁定会话。')
+        return True, '帮助已关闭。'
+    if kind in ('rename', 'remove'):
+        store = AliasStore()
+        if kind == 'remove':
+            return True, '别名已删除。' if store.remove(action['name']) else '这个别名不存在。'
+        new = action.get('new') or ui.text('重命名别名', '输入新的别名，原账号绑定保持不变。', action['name'])
+        if new is None: return True, '已取消重命名。'
+        store.rename(action['name'], new)
+        return True, '别名已重命名。'
+    if kind == 'prompt':
+        query = ui.text('查找网站账号', '输入网站域名，可在后面加用户名，例如 github.com me@example.com。')
+        if query is None: return True, '已取消查询。'
+        action = {'action': 'login', 'query': query}
+    alias = action.get('alias', '')
+    domain, username = ('', '') if alias else parse_query(action['query'])
+    show, duration = display_settings()
+    result = request_login(domain, username, alias, action.get('name', '') if kind == 'bind' else '',
+                           clear_seconds(), idle_seconds(), show, duration)
+    return result['ok'], result['message']
+
+
 def run(mode, query):
     if mode not in ("password", "otp", "pair", "lock"):
         raise BridgeError("不支持的操作。")
@@ -82,6 +125,19 @@ def main(argv=None):
         if args == ['--serve']:
             from passwords_bridge.broker import serve
             return serve()
+        if args[:1] == ['--menu']:
+            try:
+                result = menu(args[1] if len(args) > 1 else '')
+            except BridgeError as error:
+                result = {'items': [{'title': str(error), 'valid': False}]}
+            except Exception:
+                result = {'items': [{'title': '无法生成账号菜单，请检查别名文件。', 'valid': False}]}
+            print(json.dumps(result, ensure_ascii=False))
+            return 0
+        if args[:1] == ['--act']:
+            ok, message = interactive(json.loads(args[1]))
+            print(message)
+            return 0 if ok else 1
         if not args:
             raise BridgeError("用法：apple-passwords.py password|otp|pair|lock [网站域名 用户名]")
         ok, message = run(args[0], args[1] if len(args) > 1 else "")

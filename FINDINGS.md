@@ -1,5 +1,10 @@
 # Earlier Passwords UI automation findings
 
+Update for 0.8.0: the unified `pass` entry now uses a native account picker,
+metadata-only aliases, staged password/OTP copying, and optional transient
+plaintext display for manual typing. These changes do not restore Passwords-app
+UI automation or whole-vault enumeration. See the current README and SECURITY.md.
+
 Update for 0.7.0: sessions are now reused for a bounded interval to avoid pairing
 on every copy. Browser control remains on anonymous pipes. A token-protected,
 copy-only local Unix socket is now used between Alfred and the bounded broker;

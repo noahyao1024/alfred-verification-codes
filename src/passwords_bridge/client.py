@@ -10,7 +10,7 @@ import sys
 import time
 
 from .browser import BridgeError
-from .broker import PROTOCOL, validate_copy
+from .broker import PROTOCOL, validate_copy, validate_login
 from .extension import data_dir
 
 
@@ -44,7 +44,9 @@ def rpc(request, root=None):
             connection.connect(str(root / 'session.sock'))
         except (FileNotFoundError, ConnectionRefusedError):
             raise Unavailable from None
-        connection.settimeout(180)
+        # Interactive account/popup steps can legitimately exceed a PIN-only wait.
+        # The broker's 30-minute lifetime cap still bounds the entire interaction.
+        connection.settimeout(1860 if request.get('op') == 'login' else 180)
         packet = dict(request, v=PROTOCOL, token=info['token'])
         connection.sendall(json.dumps(packet).encode() + b'\n')
         reply = b''
@@ -67,6 +69,24 @@ def rpc(request, root=None):
 def request_copy(mode, domain, username, clear_after, idle_seconds):
     request = validate_copy({'op': 'copy', 'mode': mode, 'domain': domain, 'username': username,
                              'clear_after': clear_after, 'idle_seconds': idle_seconds})
+    return dispatch(request)
+
+
+def request_login(domain, username, alias, save_alias, clear_after, idle_seconds, display, display_seconds):
+    request = validate_login({'op': 'login', 'domain': domain, 'username': username,
+                              'alias': alias, 'save_alias': save_alias, 'clear_after': clear_after,
+                              'idle_seconds': idle_seconds, 'display': display, 'display_seconds': display_seconds})
+    try:
+        if not metadata(data_dir()).get('interactive'):
+            result = lock_session()  # retire a pre-0.8 broker before sending a new operation
+            if not result['ok']:
+                return result
+    except Unavailable:
+        pass
+    return dispatch(request)
+
+
+def dispatch(request):
     try:
         return rpc(request)
     except Unavailable:

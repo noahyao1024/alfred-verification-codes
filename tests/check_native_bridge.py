@@ -4,6 +4,7 @@ Prepare the pinned archive with pwsetup first, then run with /usr/bin/python3.
 """
 
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -101,6 +102,13 @@ class NativeReuseTests(unittest.TestCase):
 
 
 class NativeBridgeTests(unittest.TestCase):
+    def test_account_picker_modal_search_and_selection(self):
+        script = Path(__file__).resolve().parents[1] / 'src/passwords_bridge/local_ui.js'
+        result = subprocess.run(['/usr/bin/osascript', '-l', 'JavaScript', str(script), '--smoke'],
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {'action': 'select', 'index': 1})
+
     def test_pinned_extension_read_scope_and_teardown(self):
         with PasswordSession("example.invalid", "fixture-user", "password") as session:
             child = session.browser.proc

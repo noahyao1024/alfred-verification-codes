@@ -13,7 +13,7 @@ to download the pinned iCloud Passwords extension. No apwcli/chauffeur install
 is required. This edition uses Python 3.9+ and its standard library (available
 on this development Mac through Command Line Tools).
 
-The first `pass` / `pcode` operation asks for Apple pairing. Enter the PIN shown
+The first `pass` operation asks for Apple pairing. Enter the PIN shown
 by macOS into the local dialog; subsequent password and OTP copies reuse that
 session while it remains valid. By default, 5 minutes without a copy closes it.
 Screen lock, sleep/user switching, `pwlock`, or a 30-minute maximum lifetime also
@@ -34,35 +34,63 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
+Use **one entry point: `pass`**. Start with `pass github.com`, select the account
+in the searchable native list, and the password is copied first. Its value is
+shown in a movable floating window for manual typing. When ready, click **Copy
+Verification Code**; the matching code is fetched again and copied then, without
+immediately overwriting the password after the first step. OTP-only accounts are
+also listed. A broader-domain or multiple-code match asks you to select the code.
+
 | Alfred input | Result |
 | --- | --- |
-| `pass github.com` | Copy the unique matching password from Apple Passwords |
-| `pass github.com me@example.com` | Copy the password for this username |
-| `pcode github.com` | Copy the unique matching current verification code |
-| `pcode github.com me@example.com` | Copy the code for this username |
-| `pwsetup` | Prepare and verify the pinned official extension |
-| `pwlock` | Close the current session without starting a new one |
+| `pass` | Show saved aliases and actions; Enter on Find Account asks for a website |
+| `pass github.com` | Search the site's account list; select, copy password, then optionally OTP |
+| `pass github.com me@example.com` | Narrow the account list to this username |
+| `pass gh-work` or `pass @gh-work` | Use the account bound to this alias |
+| `pass alias` | List aliases; Command-Return renames, Option-Return deletes the alias |
+| `pass alias add gh-work github.com [username]` | Select an account and save an alias without copying a secret |
+| `pass alias rename gh-work gh-team` | Rename an alias |
+| `pass alias remove gh-work` | Remove only the alias |
+| `pass setup` | Prepare and verify the pinned official extension |
+| `pass lock` | Close the current session without starting a new one |
 | `otp` / `otpadd` | Use the existing, separate local seed store |
 
-When more than one account matches, nothing is copied; add the username. The
-username is literal text (spaces are allowed); do not add shell quotes. A full
+The legacy `pcode`, `pwsetup`, and `pwlock` shortcuts remain compatible, but are
+not needed for the new flow. A username is literal text (spaces are allowed);
+do not add shell quotes. A full
 http/https URL may replace the domain; only its hostname is used. Apple's helper matches
-by registrable domain, so subdomains can return the same set of accounts.
+by registrable domain, so subdomains can return the same set of accounts. The
+picker shows title, username, and returned sites rather than guessing which
+record was intended. Records with identical visible identifiers are refused;
+rename/distinguish them in Passwords first.
+
+Use **Set Alias** in the copied-value window to save a selected account. Aliases
+contain only its query domain, username, title, sites, and credential kind, never
+a password or OTP seed. Password changes and result reordering do not change the
+binding. A renamed/changed/duplicated account cannot silently redirect an alias:
+query the domain again and update the binding. Overwriting a different binding
+requires confirmation. `aliases.json` is private and updated atomically.
 
 `pass` and `pcode` connect to a short-lived, copy-only broker. It owns the private
 browser profile and anonymous CDP pipes; no TCP debugging listener is opened.
 The broker's Unix socket requires the same OS user and a per-session token in a
 private directory. It copies within the broker and returns only a status, never
-passwords or codes, to Alfred. Credentials also stay out of notifications and debugging. They
+passwords or codes, to Alfred. On explicit user request, the copied value is now
+displayed in a temporary native window for manual typing; it is not put into
+Notification Center history or debugging output. Turn off **Show copied value**
+(`SHOW_SECRETS`) to suppress plaintext while retaining the copy controls. Set
+`DISPLAY_SECONDS` (10–180, default 45) to change the window timeout. Screen viewers
+can see the window. It closes when the operation is cancelled/locked or times out.
+Credentials
 receive clipboard privacy markers used by Alfred and other compliant history
 managers; applications that ignore these markers may still record the clipboard.
 The existing clear delay applies (45 seconds by default, `0` disables it).
-The cleanup helper holds only a pasteboard change counter, never the secret;
+The clipboard cleanup helper holds only a pasteboard change counter, never the secret;
 a subsequent copy, even of identical text, is preserved.
 
 Set `SESSION_IDLE_SECONDS` in Workflow Configuration to change the idle timeout
 (30–1800 seconds, default 300). Keep-alive and status checks do not extend it.
-Copies refresh the idle timer; the 30-minute lifetime cap still applies. A typo
+Copies and active interactive flows refresh the idle timer; the 30-minute lifetime cap still applies. A typo
 or ambiguous account can be corrected within the same pairing session.
 
 These commands read Apple Passwords; they do not list the whole vault or edit

@@ -21,6 +21,7 @@ from .clipboard import copy_secret
 from .extension import data_dir
 from .screen import LockMonitor
 from .session import CredentialLookupError, PasswordSession
+from .aliases import AliasStore, alias_name
 
 
 PROTOCOL = 1
@@ -53,10 +54,35 @@ def validate_copy(request):
     return request
 
 
+def validate_login(request):
+    keys = {'op', 'domain', 'username', 'alias', 'save_alias', 'clear_after', 'idle_seconds', 'display', 'display_seconds'}
+    if set(request) != keys or request['op'] != 'login':
+        raise BridgeError('账号查询请求格式无效。')
+    if not isinstance(request['alias'], str) or not isinstance(request['save_alias'], str):
+        raise BridgeError('别名参数无效。')
+    if request['alias']:
+        alias_name(request['alias'])
+        if request['domain'] or request['username'] or request['save_alias']:
+            raise BridgeError('别名查询不能同时指定其他账号。')
+    else:
+        validate_copy({key: request[key] for key in ('domain', 'username', 'clear_after', 'idle_seconds')} |
+                      {'op': 'copy', 'mode': 'password'})
+    if request['save_alias']:
+        alias_name(request['save_alias'])
+    if (type(request['display']) is not bool or type(request['display_seconds']) is not int or
+            not 10 <= request['display_seconds'] <= 180):
+        raise BridgeError('显示设置无效。')
+    # Alias requests still need the same numeric limits as ordinary copies.
+    for key, low, high in (('clear_after', 0, 86400), ('idle_seconds', 30, 1800)):
+        if type(request[key]) is not int or not low <= request[key] <= high:
+            raise BridgeError('会话或剪贴板时长无效。')
+    return request
+
+
 class SessionManager:
     def __init__(self, monitor, session_factory=PasswordSession, copier=copy_secret,
                  clock=time.monotonic, wall_clock=time.time, idle=DEFAULT_IDLE, maximum=MAX_LIFETIME,
-                 log=lambda event: None):
+                 log=lambda event: None, alias_store=None, ui_factory=None):
         self.monitor, self.factory, self.copier = monitor, session_factory, copier
         self.clock, self.wall = clock, wall_clock
         self.idle, self.maximum = idle, maximum
@@ -67,6 +93,17 @@ class SessionManager:
         self.expired = False
         self.cancelled = threading.Event()
         self.log = log
+        self.alias_store = alias_store
+        self.ui_factory = ui_factory
+
+    def ensure_session(self, domain, username, mode):
+        if self.session is None:
+            self.session = self.factory(domain, username, mode, guard=self.guard)
+            self.session.__enter__()
+        self.session.set_scope(domain, username, mode)
+        if not self.session.state().get('paired'):
+            self.session.pair()
+            self.log('paired')
 
     def guard(self):
         now, wall = self.clock(), self.wall()
@@ -118,13 +155,7 @@ class SessionManager:
         self.idle = request['idle_seconds']
         value = None
         try:
-            if self.session is None:
-                self.session = self.factory(request['domain'], request['username'], request['mode'], guard=self.guard)
-                self.session.__enter__()
-            self.session.set_scope(request['domain'], request['username'], request['mode'])
-            if not self.session.state().get('paired'):
-                self.session.pair()
-                self.log('paired')
+            self.ensure_session(request['domain'], request['username'], request['mode'])
             self.guard()
             value = self.session.read(request['mode'])
             self.guard()  # a lock arriving during the read must prevent clipboard delivery
@@ -139,6 +170,32 @@ class SessionManager:
             raise
         finally:
             value = None
+            try:
+                if self.session:
+                    self.session.clear_scope()
+            except Exception:
+                self.close_session()
+            self.last_activity = self.clock()
+            self.busy = False
+
+    def login(self, request):
+        from .login_flow import LoginFlow
+        request = validate_login(request)
+        self.guard()
+        self.busy = True
+        self.idle = request['idle_seconds']
+        try:
+            store = self.alias_store or AliasStore()
+            flow = LoginFlow(self, store, request)
+            if self.ui_factory:
+                flow.ui = self.ui_factory(self, flow)
+            return flow.run()
+        except CredentialLookupError:
+            raise
+        except BaseException:
+            self.close_session()
+            raise
+        finally:
             try:
                 if self.session:
                     self.session.clear_scope()
@@ -202,7 +259,7 @@ def metadata_write(root, token):
     fd, temporary = tempfile.mkstemp(prefix='session-meta-', dir=str(root))
     try:
         with os.fdopen(fd, 'w') as stream:
-            json.dump({'v': PROTOCOL, 'pid': os.getpid(), 'token': token}, stream)
+            json.dump({'v': PROTOCOL, 'pid': os.getpid(), 'token': token, 'interactive': True}, stream)
         os.replace(temporary, root / 'session.json')
     finally:
         Path(temporary).unlink(missing_ok=True)
@@ -225,7 +282,7 @@ def event_logger(root):
 
 def perform(manager, request):
     try:
-        return manager.copy(request)
+        return manager.login(request) if request.get('op') == 'login' else manager.copy(request)
     except BridgeError as error:
         return {'ok': False, 'message': str(error)}
     except Exception:
@@ -234,7 +291,7 @@ def perform(manager, request):
 
 
 def serve(root=None, monitor_factory=LockMonitor, session_factory=PasswordSession,
-          copier=copy_secret, ready=None):
+          copier=copy_secret, ready=None, ui_factory=None):
     root = Path(root) if root is not None else data_dir()
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     root.chmod(0o700)
@@ -250,7 +307,8 @@ def serve(root=None, monitor_factory=LockMonitor, session_factory=PasswordSessio
     log = event_logger(root)
     try:
         monitor = monitor_factory()
-        manager = SessionManager(monitor, session_factory, copier, log=log)
+        manager = SessionManager(monitor, session_factory, copier, log=log,
+                                 alias_store=AliasStore(root), ui_factory=ui_factory)
         manager.guard()
         if socket_path.exists():
             if not stat.S_ISSOCK(socket_path.lstat().st_mode):
@@ -287,8 +345,8 @@ def serve(root=None, monitor_factory=LockMonitor, session_factory=PasswordSessio
                     send_result(connection, {'ok': True, 'active': manager.session is not None,
                                              'busy': future is not None,
                                              'idle_remaining': max(0, int(manager.idle - (manager.clock() - manager.last_activity)))})
-                elif request.get('op') == 'copy':
-                    validate_copy(request)
+                elif request.get('op') in ('copy', 'login'):
+                    (validate_login if request['op'] == 'login' else validate_copy)(request)
                     if future is not None:
                         raise BridgeError('已有复制操作进行中，请完成或取消配对后重试。')
                     pending = connection

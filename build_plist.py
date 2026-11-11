@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.7.0")
+VERSION = os.environ.get("VERSION", "0.8.0")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -92,9 +92,10 @@ objects = [
         "type": "alfred.workflow.output.notification", "uid": NOTIFY,
         "version": 1,
     },
-    keyword(KW_PASSWORD, "{var:passwordkeyword}", "复制 Apple Passwords 密码",
-            "输入网站域名；多个账号时在后面加用户名", argumenttype=0),
-    runscript(S_PASSWORD, '/usr/bin/python3 -I apple-passwords.py password "$1"'),
+    scriptfilter(KW_PASSWORD, "{var:passwordkeyword}", "密码、验证码与别名",
+                 "输入网站或别名；回车选择账号，密码先复制，随后可复制验证码",
+                 '/usr/bin/python3 -I apple-passwords.py --menu "$1"'),
+    runscript(S_PASSWORD, '/usr/bin/python3 -I apple-passwords.py --act "$1"'),
     keyword(KW_APP_OTP, "{var:appleotpkeyword}", "复制 Apple Passwords 验证码",
             "输入网站域名；验证码直接来自系统「密码」", argumenttype=0),
     runscript(S_APP_OTP, '/usr/bin/python3 -I apple-passwords.py otp "$1"'),
@@ -105,6 +106,10 @@ objects = [
             "关闭已配对会话，下次复制时重新配对", argumenttype=2),
     runscript(S_LOCK, '/usr/bin/python3 -I apple-passwords.py lock'),
 ]
+
+for obj in objects:
+    if obj['uid'] == KW_PASSWORD:
+        obj['config'].update({'scriptargtype': 1, 'alfredfiltersresults': False})
 
 connections = {
     SF_OTP: [conn(S_OTP, 0, "copy code"),
@@ -144,8 +149,18 @@ uidata = {
 userconfig = [
     {
         "config": {"default": "pass", "placeholder": "pass", "required": True, "trim": True},
-        "description": "从系统「密码」复制密码：pass 网站域名 [用户名]。",
-        "label": "Apple Passwords keyword", "type": "textfield", "variable": "passwordkeyword",
+        "description": "统一入口：pass 网站域名、pass 别名、pass alias、pass lock。",
+        "label": "Main keyword", "type": "textfield", "variable": "passwordkeyword",
+    },
+    {
+        "config": {"default": True, "required": False, "text": "复制后在本机弹窗显示明文，方便手打"},
+        "description": "窗口中显示本次密码或验证码；屏幕共享可能让观看者看到。关闭此项仍可复制和切换验证码。",
+        "label": "Show copied value", "type": "checkbox", "variable": "SHOW_SECRETS",
+    },
+    {
+        "config": {"default": "45", "placeholder": "45", "required": True, "trim": True},
+        "description": "密码/验证码窗口多少秒后自动关闭，范围 10–180。锁屏时也会关闭。",
+        "label": "Display timeout (seconds)", "type": "textfield", "variable": "DISPLAY_SECONDS",
     },
     {
         "config": {"default": "pcode", "placeholder": "pcode", "required": True, "trim": True},
@@ -199,14 +214,20 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
-* `pass github.com [username]`: copy a password, pairing only when needed.
-* `pcode github.com [username]`: copy its current code in the same active session.
-* `pwlock`: close the active session immediately.
-* If several accounts match, specify the username; nothing is copied until \
-the match is unique. Enter usernames literally, without shell quotes.
+* `pass github.com [username]`: search the account list, select one, and copy its password first.
+* The copied value appears in a temporary native window for manual typing. Click \
+Copy Verification Code when ready; its code is fetched again at copy time.
+* Use Set Alias in the window, then `pass gh-work` to reuse that exact account.
+* `pass alias`: list aliases; Command-Return renames, Option-Return removes an alias.
+* `pass alias add gh-work github.com [username]`: bind an alias without copying a secret.
+* `pass setup` prepares the extension; `pass lock` closes the active session.
+* `pcode`, `pwsetup`, and `pwlock` remain as compatibility shortcuts.
 
-The new commands do not expose credentials to Alfred's debugger or \
-notifications. Clipboard privacy markers request exclusion from history.
+Passwords and codes are never returned to Alfred's debugger or stored in \
+Notification Center. By request, the copied value is displayed in a temporary \
+local window (disable Show copied value if desired); screen viewers can see it.
+Aliases store account identifiers only, never a password or OTP seed.
+Clipboard privacy markers request exclusion from history.
 The first copy starts a short-lived session. Pairing is reused until 5 minutes \
 of inactivity by default, screen lock, sleep/session switch, manual pwlock, \
 or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
@@ -260,6 +281,7 @@ wf = {
     "variables": {"otpkeyword": "otp", "otpaddkeyword": "otpadd",
                   "passwordkeyword": "pass", "appleotpkeyword": "pcode",
                   "pairkeyword": "pwsetup", "lockkeyword": "pwlock", "SESSION_IDLE_SECONDS": "300",
+                  "SHOW_SECRETS": "1", "DISPLAY_SECONDS": "45",
                   "CLEAR_CLIPBOARD_AFTER": "45"},
     "variablesdontexport": [],
     "version": VERSION,

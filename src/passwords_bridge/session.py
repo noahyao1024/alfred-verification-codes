@@ -128,7 +128,7 @@ return text returned of answer'''
                 dialog.wait(timeout=5)
             dialog.stdout.close()
 
-    def read(self, mode):
+    def query(self, mode):
         if mode == "password":
             message = {"cmd": 5, "qid": "CmdGetPassword4LoginName", "tabId": 0, "frameId": 0,
                        "url": self.domain,
@@ -138,7 +138,13 @@ return text returned of answer'''
                        "body": {"ACT": 2, "TYPE": "oneTimeCodes", "frameURLs": ["https://" + self.domain]}}
         else:
             raise BridgeError("不支持的读取类型。")
-        return select_secret(self.request(message), mode, self.username)
+        return self.request(message)
+
+    def entries(self, mode):
+        return decode_entries(self.query(mode))
+
+    def read(self, mode):
+        return select_secret(self.query(mode), mode, self.username)
 
     def __exit__(self, *exc):
         try:
@@ -153,7 +159,7 @@ class CredentialLookupError(BridgeError):
     """A valid paired session may be retained after an empty/ambiguous lookup."""
 
 
-def select_secret(response, mode, username):
+def decode_entries(response):
     if not isinstance(response, dict):
         raise BridgeError("Apple Passwords 返回格式无效。")
     data = response.get("data", {})
@@ -165,7 +171,7 @@ def select_secret(response, mode, username):
     if status == 9:
         raise BridgeError("Apple 配对已失效，请重试。")
     if status == 3:
-        raise CredentialLookupError("未找到匹配的密码或验证码。")
+        return []
     if status != 0:
         raise BridgeError("Apple Passwords 读取失败；未输出原始响应。")
     entries = data.get("Entries")
@@ -173,6 +179,11 @@ def select_secret(response, mode, username):
         entries = [v for k, v in data.items() if k.startswith("Entry_")]
     if not isinstance(entries, list):
         raise BridgeError("Apple Passwords 返回了不支持的条目格式。")
+    return entries
+
+
+def select_secret(response, mode, username):
+    entries = decode_entries(response)
     candidates = []
     for entry in entries:
         if not isinstance(entry, dict):

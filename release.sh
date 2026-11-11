@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 : "${GH_USER:?Set GH_USER to your GitHub username}"
 : "${AUTHOR:?Set AUTHOR to your name}"
 REPO="${REPO:-alfred-verification-codes}"
-VERSION="${VERSION:-0.7.0}"
+VERSION="${VERSION:-0.8.0}"
 NAME="Passwords Quick Copy"
 DESCRIPTION="Alfred workflow to copy Apple Passwords passwords and verification codes"
 
@@ -34,9 +34,10 @@ gh release create "v$VERSION" "dist/$NAME.alfredworkflow" \
   --title "v$VERSION" \
   --notes "Copy Apple Passwords passwords and verification codes via Alfred.
 
-Use pwsetup to prepare the pinned official extension. No apwcli install is needed.
-Use pass with a domain to copy a password, or pcode to copy a verification code.
-Append the username when multiple accounts match.
+Use pass setup to prepare the pinned official extension. No apwcli install is needed.
+Use pass with a website or alias, select the account, and copy the password first.
+The native window can display the value for manual typing and copy a fresh OTP next.
+Save aliases from the window; pass alias lists and manages them.
 Pairing is reused until 5 minutes idle, screen lock, pwlock, or 30 minutes total.
 Browser control uses anonymous pipes with no TCP debugging listener.
 

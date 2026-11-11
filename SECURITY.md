@@ -1,27 +1,51 @@
-# Security scope of version 0.7
+# Security scope of version 0.8
 
-Version 0.7 keeps pairing briefly so consecutive password/OTP copies do not each
+This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.7 behavior |
+| Boundary | Version 0.8 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
 | Session lifetime | 5 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
 | Lock handling | Native screen-lock, session-inactive, and sleep notifications plus console-state checks; monitoring failure closes access |
-| Client IPC | Copy/status/stop only; mode-0600 Unix socket and random per-session token in a mode-0700 directory; same OS user required |
+| Client IPC | Copy/login/status/stop only; mode-0600 Unix socket and random per-session token in a mode-0700 directory; same OS user required |
 | Credential delivery | Copied inside the broker; no plaintext credential response over the client socket |
 | Operation scope | Validated type/domain/username per request; scope cleared between requests; no raw native command or evaluation endpoint |
 | Manual control | `pwlock` cancels an in-flight operation and waits for shutdown |
 | Idle accounting | Valid copy attempts refresh idle time; status and worker keepalive do not; active pairing is not interrupted by idle time |
 | Extension | Exact pinned archive hash; explicit setup; no silent runtime replacement |
 | Clipboard | Concealed/transient markers and generation-based timed clearing; cleanup retains no credential |
+| Account UI | Searchable native list shows username/title/sites; aliases bind exact metadata, not a result index or password hash |
+| Manual-entry display | Explicitly requested plaintext appears in a transient native floating window; no Notification Center record; can be disabled |
 
 The broker serializes copies, rechecks lock/lifetime during browser waits and
 before clipboard delivery, and clears operation scope afterward. A lookup that
 needs a more specific username can retain pairing. Cancelled pairing, protocol
 failure, or a disconnected browser discards that browser. Apple can invalidate
 pairing independently; the next copy must pair again.
+
+The unified login flow holds the current query results only in broker memory
+while the user chooses an account. It copies the password first and requires a
+separate user action before replacing it with an OTP. Codes are fetched again
+after selection, so prefetch/picker delay does not cause a cached code to be copied.
+OTP matching never falls back to another username; broader-domain or multiple
+matches require explicit selection. Indistinguishable metadata duplicates are
+refused, as the protocol does not provide a stable identifier we can rely on.
+
+Aliases store only whitelisted account metadata in a mode-0600 JSON file. They
+contain no password, code, seed, or secret-derived identifier. Renamed or duplicated
+bindings fail instead of guessing a different account; overwrite requires
+confirmation. Alias names and account metadata intentionally appear in Alfred.
+
+On the user's explicit request, copied secrets may be shown in a large native
+window for manual typing. The value travels to that owned UI child over stdin,
+not argv, environment, temporary files, or the Alfred IPC response. The child
+returns only an action/index/alias text. Plaintext is not sent to Notification
+Center. Display timeout, screen lock, and cancellation close the window; screen
+observers or recording software can still see it. `SHOW_SECRETS` disables this
+display, while retaining the copy/OTP controls. The interaction may keep a session
+busy, but remains bounded by the broker's absolute lifetime cap.
 
 The Unix token is a local capability, not proof of Alfred's application identity.
 Another process running as the same macOS user and able to read that token can
