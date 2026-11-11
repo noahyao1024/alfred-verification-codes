@@ -10,11 +10,15 @@ import sys
 import time
 
 from .browser import BridgeError
-from .broker import PROTOCOL, validate_catalog, validate_copy, validate_login, validate_select
+from .broker import PROTOCOL, validate_catalog, validate_copy, validate_login, validate_select, validate_warm
 from .extension import data_dir
 
 
 class Unavailable(Exception):
+    pass
+
+
+class SessionChanged(Exception):
     pass
 
 
@@ -34,9 +38,11 @@ def metadata(root):
     return info
 
 
-def rpc(request, root=None):
+def rpc(request, root=None, expected_token=None, return_token=False):
     root = Path(root) if root is not None else data_dir()
     info = metadata(root)
+    if expected_token is not None and info['token'] != expected_token:
+        raise SessionChanged
     connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         connection.settimeout(1)
@@ -58,7 +64,7 @@ def rpc(request, root=None):
         result = json.loads(reply.split(b'\n', 1)[0])
         if not isinstance(result, dict) or type(result.get('ok')) is not bool:
             raise BridgeError('会话响应格式无效。')
-        return result
+        return (result, info['token']) if return_token else result
     except (socket.timeout, ConnectionResetError, BrokenPipeError):
         # Never retry after transmitting a copy: it may already have happened.
         raise BridgeError('操作结果未确认，请先检查剪贴板后再重试。') from None
@@ -69,6 +75,12 @@ def rpc(request, root=None):
 def request_copy(mode, domain, username, clear_after, idle_seconds):
     request = validate_copy({'op': 'copy', 'mode': mode, 'domain': domain, 'username': username,
                              'clear_after': clear_after, 'idle_seconds': idle_seconds})
+    retire_incompatible_broker()
+    return dispatch(request)
+
+
+def request_warm(idle_seconds):
+    request = validate_warm({'op': 'warm', 'idle_seconds': idle_seconds})
     retire_incompatible_broker()
     return dispatch(request)
 
@@ -101,7 +113,7 @@ def retire_incompatible_broker():
     try:
         info = metadata(data_dir())
         if (not info.get('alfred_catalog') or not info.get('performance_v1') or
-                not info.get('native_ready_v1')):
+                not info.get('native_ready_v1') or not info.get('prewarm_v1')):
             result = lock_session()
             if not result['ok']:
                 raise BridgeError(result['message'])
@@ -110,20 +122,38 @@ def retire_incompatible_broker():
 
 
 def dispatch(request):
-    try:
-        return rpc(request)
-    except Unavailable:
-        pass
     entry = Path(__file__).resolve().parents[1] / 'apple-passwords.py'
-    subprocess.Popen([sys.executable, '-I', str(entry), '--serve'], stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
+    launched = False
+    startup_deadline = warming_deadline = None
+    warming_token = None
+    while True:
+        now = time.monotonic()
+        if warming_deadline is not None and now >= warming_deadline:
+            raise BridgeError('浏览器预热超时，请重试。')
         try:
-            return rpc(request)
+            result, token = rpc(request, expected_token=warming_token, return_token=True)
+        except SessionChanged:
+            raise BridgeError('预热会话已被锁定或替换，请重新运行操作。') from None
         except Unavailable:
-            time.sleep(0.1)  # readiness only; nothing is retried after a request is sent
-    raise BridgeError('无法启动会话，请解锁屏幕后重试；也可运行 pwlock 清理旧会话。')
+            if warming_token is not None:
+                raise BridgeError('预热会话已关闭，请重新运行操作。') from None
+            if not launched:
+                subprocess.Popen([sys.executable, '-I', str(entry), '--serve'], stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                launched = True
+                startup_deadline = time.monotonic() + 10
+            elif time.monotonic() >= startup_deadline:
+                raise BridgeError('无法启动会话，请解锁屏幕后重试；也可运行 pwlock 清理旧会话。')
+            time.sleep(0.1)
+            continue
+        if result.get('warming') is True:
+            # The broker has not submitted this operation, so retrying it is safe.
+            warming_token = token
+            if warming_deadline is None:
+                warming_deadline = time.monotonic() + 30
+            time.sleep(0.1)
+            continue
+        return result
 
 
 def lock_session():

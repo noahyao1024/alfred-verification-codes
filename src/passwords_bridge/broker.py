@@ -99,6 +99,13 @@ def validate_catalog(request):
     return request
 
 
+def validate_warm(request):
+    if (set(request) != {'op', 'idle_seconds'} or request['op'] != 'warm' or
+            type(request['idle_seconds']) is not int or not 30 <= request['idle_seconds'] <= 1800):
+        raise BridgeError('预热请求格式无效。')
+    return request
+
+
 def validate_select(request):
     keys = {'op', 'domain', 'identity', 'clear_after', 'idle_seconds', 'display', 'display_seconds'}
     if set(request) != keys or request['op'] != 'select':
@@ -130,6 +137,7 @@ class SessionManager:
         self.cancelled = threading.Event()
         self.request_cancelled = threading.Event()
         self.starting_session = False
+        self.prewarmed_unpaired = False
         self.log = log
         self.perf_clock = perf_clock
         self.alias_store = alias_store
@@ -163,7 +171,7 @@ class SessionManager:
         from .accounts import identity_key
         self.password_cache.pop(identity_key(identity), None)
 
-    def ensure_session(self, domain, username, mode):
+    def start_session(self, domain='', username='', mode='password_list'):
         if self.session is None:
             self.clear_cache()
             started = self.perf_clock()
@@ -172,6 +180,7 @@ class SessionManager:
             try:
                 candidate.__enter__()
                 self.session = candidate
+                self.prewarmed_unpaired = True
                 if self.request_cancelled.is_set():
                     # Alfred starts a query as soon as a short prefix is typed.
                     # Finish the one expensive browser startup, but do not pair or
@@ -182,6 +191,11 @@ class SessionManager:
             finally:
                 self.starting_session = False
                 self.record_performance('browser_startup', started)
+            return True
+        return False
+
+    def ensure_session(self, domain, username, mode):
+        self.start_session(domain, username, mode)
         self.session.set_scope(domain, username, mode)
         if not self.session.state().get('paired'):
             self.clear_cache()
@@ -191,6 +205,7 @@ class SessionManager:
                 self.session.pair()
             finally:
                 self.record_performance('pairing', started)
+            self.prewarmed_unpaired = False
             self.log('paired')
 
     def guard(self):
@@ -218,6 +233,7 @@ class SessionManager:
     def close_session(self):
         self.clear_cache()
         owned, self.session = self.session, None
+        self.prewarmed_unpaired = False
         if owned:
             owned.__exit__(None, None, None)
 
@@ -230,7 +246,10 @@ class SessionManager:
         if self.session and self.clock() - self.last_poke >= 2:
             self.last_poke = self.clock()
             try:
-                if not self.session.state().get('paired'):
+                state = self.session.state()
+                reusable_prewarm = (self.prewarmed_unpaired and
+                                    state.get('nativeReady', True))
+                if not state.get('paired') and not reusable_prewarm:
                     self.close_session()
                     self.log('apple_session_expired')
             except SessionExpired:
@@ -238,6 +257,27 @@ class SessionManager:
             except Exception:
                 self.close_session()
                 self.log('browser_disconnected')
+
+    def warm(self, request):
+        request = validate_warm(request)
+        self.guard()
+        self.busy = True
+        created = False
+        try:
+            created = self.start_session()
+            if created:
+                self.idle = request['idle_seconds']
+            self.session.clear_scope()
+            if created:
+                self.log('prewarmed')
+            return {'ok': True, 'message': '浏览器已预热；首次读取时仍需 Apple 配对。'}
+        except BaseException:
+            self.close_session()
+            raise
+        finally:
+            if created:
+                self.last_activity = self.clock()
+            self.busy = False
 
     def copy(self, request):
         request = validate_copy(request)
@@ -469,7 +509,8 @@ def metadata_write(root, token):
             json.dump({'v': PROTOCOL, 'pid': os.getpid(), 'token': token,
                        'interactive': True, 'lazy_otp': True, 'lazy_passwords': True,
                        'credential_cache': True, 'alfred_catalog': True,
-                       'performance_v1': True, 'native_ready_v1': True}, stream)
+                       'performance_v1': True, 'native_ready_v1': True,
+                       'prewarm_v1': True}, stream)
         os.replace(temporary, root / 'session.json')
     finally:
         Path(temporary).unlink(missing_ok=True)
@@ -496,7 +537,7 @@ def event_logger(root):
 def perform(manager, request):
     started = manager.perf_clock()
     try:
-        operations = {'copy': manager.copy, 'login': manager.login,
+        operations = {'warm': manager.warm, 'copy': manager.copy, 'login': manager.login,
                       'catalog': manager.catalog, 'select': manager.select}
         operation = operations.get(request.get('op'))
         if operation is None:
@@ -523,7 +564,7 @@ def serve(root=None, monitor_factory=LockMonitor, session_factory=PasswordSessio
     except BlockingIOError:
         os.close(lock)
         return 0
-    listener = monitor = manager = executor = future = pending = None
+    listener = monitor = manager = executor = future = pending = active_operation = None
     socket_path = root / 'session.sock'
     owned_socket = False
     log = event_logger(root)
@@ -552,6 +593,7 @@ def serve(root=None, monitor_factory=LockMonitor, session_factory=PasswordSessio
             if future is not None and future.done():
                 send_result(pending, future.result())
                 pending = future = None
+                active_operation = None
                 manager.request_cancelled.clear()
             elif (future is not None and pending is not None and
                   not manager.request_cancelled.is_set() and peer_disconnected(pending)):
@@ -572,14 +614,23 @@ def serve(root=None, monitor_factory=LockMonitor, session_factory=PasswordSessio
                     send_result(connection, {'ok': True, 'active': manager.session is not None,
                                              'busy': future is not None,
                                              'idle_remaining': max(0, int(manager.idle - (manager.clock() - manager.last_activity)))})
-                elif request.get('op') in ('copy', 'login', 'catalog', 'select'):
+                elif request.get('op') in ('warm', 'copy', 'login', 'catalog', 'select'):
                     validators = {'copy': validate_copy, 'login': validate_login,
-                                  'catalog': validate_catalog, 'select': validate_select}
+                                  'catalog': validate_catalog, 'select': validate_select,
+                                  'warm': validate_warm}
                     request = validators[request['op']](request)
                     if future is not None:
+                        if active_operation == 'warm':
+                            if request['op'] == 'warm':
+                                send_result(connection, {'ok': True, 'message': '浏览器正在预热。'})
+                            else:
+                                send_result(connection, {'ok': False, 'message': '浏览器正在预热，请稍候。',
+                                                         'warming': True})
+                            continue
                         raise BridgeError('已有复制操作进行中，请完成或取消配对后重试。')
                     manager.request_cancelled.clear()
                     pending = connection
+                    active_operation = request['op']
                     future = executor.submit(perform, manager, request)
                 else:
                     raise BridgeError('不支持的会话操作。')

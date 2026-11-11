@@ -105,6 +105,9 @@ function makeAlert(payload) {
         field.stringValue = $(payload.initial || '');
         field.placeholderString = $(payload.placeholder || '');
         alert.accessoryView = field;
+        // NSAlert otherwise leaves the default button as first responder. The
+        // alias dialog looks active, but keystrokes never reach its text field.
+        alert.window.initialFirstResponder = field;
     }
     return {alert, buttons, field};
 }
@@ -123,6 +126,8 @@ function run(args) {
         if (ObjC.unwrap(text.string) !== 'SYNTHETIC " 中文 012345') throw new Error('Secret display changed text');
         const floating = makeAlert({kind: 'secret', value: 'SYNTHETIC', show: true});
         if (Number(floating.alert.window.level) !== 3) throw new Error('Manual-entry window is not floating');
+        const input = makeAlert({kind: 'text', initial: 'alias'});
+        if (!input.alert.window.initialFirstResponder.isEqual(input.field)) throw new Error('Text field is not first responder');
         return 'Native account picker and secret display selftest passed';
     }
     let payload;
@@ -142,6 +147,11 @@ function run(args) {
         $.NSRunLoop.currentRunLoop.addTimerForMode(timer, $('NSModalPanelRunLoopMode'));
     }
     $.NSApplication.sharedApplication.activateIgnoringOtherApps(true);
+    if (built.field) {
+        built.alert.window.makeKeyAndOrderFront($());
+        built.alert.window.makeFirstResponder(built.field);
+        built.field.selectText($());
+    }
     const response = Number(built.alert.runModal) - 1000;
     const button = built.buttons[response];
     const result = {action: button ? button.id : 'cancel'};

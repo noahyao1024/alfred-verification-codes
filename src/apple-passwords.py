@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))  # -I ignores user Python paths; only our bundled modules are added.
 from passwords_bridge.browser import BridgeError
-from passwords_bridge.client import request_catalog, request_copy, request_login, request_selected, lock_session
+from passwords_bridge.client import request_catalog, request_copy, request_login, request_selected, request_warm, lock_session
 from passwords_bridge.extension import data_dir, setup
 from passwords_bridge.aliases import AliasStore
 from passwords_bridge.local_ui import LocalUI
@@ -131,6 +131,13 @@ def direct_menu(query, store=None):
     return catalog_menu(domain, result['accounts'], needle, result['mode'], result['fallback'])
 
 
+def start_prewarm():
+    """Warm the owned browser without delaying Alfred or requesting credentials."""
+    subprocess.Popen([sys.executable, '-I', str(HERE / 'apple-passwords.py'), '--warm'],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+
+
 def open_alfred_search(query):
     keyword = os.environ.get('passwordkeyword', 'pass').strip() or 'pass'
     script = '''on run argv
@@ -207,9 +214,14 @@ def main(argv=None):
         if args == ['--serve']:
             from passwords_bridge.broker import serve
             return serve()
+        if args == ['--warm']:
+            return 0 if request_warm(idle_seconds()).get('ok') else 1
         if args[:1] == ['--menu']:
+            query = args[1] if len(args) > 1 else ''
+            if not query.strip():
+                start_prewarm()
             try:
-                result = direct_menu(args[1] if len(args) > 1 else '')
+                result = direct_menu(query)
             except BridgeError as error:
                 result = {'items': [{'title': str(error), 'valid': False}]}
             except Exception:

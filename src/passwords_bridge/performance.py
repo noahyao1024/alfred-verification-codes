@@ -26,7 +26,7 @@ LIFECYCLE_EVENTS = {
     'otp_metadata_requested', 'otp_metadata_unavailable', 'otp_requested',
     'pair_requested', 'paired', 'password_cache_hit',
     'password_metadata_requested', 'password_metadata_unavailable',
-    'password_requested', 'request_failed', 'screen_locked',
+    'password_requested', 'prewarmed', 'request_failed', 'screen_locked',
     'sleep_or_clock_gap', 'started', 'startup_or_service_failed', 'stopped',
 }
 _PERF = re.compile(r'^perf\|([a-z_]+)\|([0-9]+)$')

@@ -396,6 +396,7 @@ class AliasAndMenuTests(unittest.TestCase):
 
     def test_performance_log_accepts_only_allowlisted_shape_and_summarizes(self):
         self.assertEqual(format_log_event('perf|catalog_total|123'), 'perf catalog_total 123')
+        self.assertEqual(format_log_event('prewarmed'), 'prewarmed')
         self.assertIsNone(format_log_event('perf|catalog_total|123 SECRET'))
         self.assertIsNone(format_log_event('example.com'))
         path = Path(self.tmp.name) / 'session.log'

@@ -88,6 +88,23 @@ class FrontendTests(unittest.TestCase):
             lock.assert_called_once()
             copy.assert_not_called()
 
+    def test_opening_empty_pass_menu_starts_nonblocking_prewarm(self):
+        menu = {'items': [{'title': 'ready', 'valid': False}]}
+        output = io.StringIO()
+        with patch.object(app, 'start_prewarm') as warm, \
+             patch.object(app, 'direct_menu', return_value=menu) as direct, \
+             contextlib.redirect_stdout(output):
+            self.assertEqual(app.main(['--menu', '']), 0)
+        warm.assert_called_once_with()
+        direct.assert_called_once_with('')
+        self.assertEqual(json.loads(output.getvalue()), menu)
+
+    def test_internal_warm_command_uses_configured_idle_limit(self):
+        with patch.object(app, 'request_warm', return_value={'ok': True}) as warm, \
+             patch.dict(os.environ, {'SESSION_IDLE_SECONDS': '600'}):
+            self.assertEqual(app.main(['--warm']), 0)
+        warm.assert_called_once_with(600)
+
     def test_direct_menu_returns_secret_free_alfred_results(self):
         identity = {'kind': 'password', 'username': 'alice', 'title': 'Personal',
                     'sites': ['github.com']}

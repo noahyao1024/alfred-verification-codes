@@ -13,7 +13,8 @@ to download the pinned iCloud Passwords extension. No apwcli/chauffeur install
 is required. This edition uses Python 3.9+ and its standard library (available
 on this development Mac through Command Line Tools).
 
-The first `pass` operation asks for Apple pairing. Enter the PIN shown
+Opening `pass` starts the isolated browser/helper in the background without
+querying accounts or asking for a PIN. The first website query asks for Apple pairing. Enter the PIN shown
 by macOS into the local dialog; subsequent password and OTP copies reuse that
 session while it remains valid. By default, it stays warm for the 30-minute
 maximum lifetime. Screen lock, sleep/user switching, or `pwlock` closes it
@@ -53,7 +54,7 @@ whole vault or search arbitrary titles across unrelated sites.
 
 | Alfred input | Result |
 | --- | --- |
-| `pass` | Show saved aliases and workflow actions |
+| `pass` | Show saved aliases/actions and prewarm the isolated browser without pairing |
 | `pass github` | Query `github.com` directly and show its password accounts in Alfred |
 | `pass github.com` or `pass https://github.com` | Use the same keyword path without a separate URL mode |
 | `pass codes github` | Show verification-code accounts in Alfred |
@@ -193,6 +194,11 @@ count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
 
+Version 0.8.5 gives the alias text field explicit keyboard focus and starts a
+credential-free browser prewarm when the empty `pass` menu opens. The prewarm
+does not pair, query metadata, read a value, or extend an existing session's idle
+deadline; the first explicit website query reuses it.
+
 Version 0.8.4 keeps Alfred's input visible while account metadata loads and
 renders the results directly in Alfred. The common path now requests only Apple's
 metadata-only password listing (`cmd 4`, ghost search); it defers OTP metadata
@@ -218,7 +224,8 @@ milliseconds—never domains, usernames, responses, or credential values.
 
 If upgrading from 0.5, stop the old service once with `apwcli daemon stop`.
 The new workflow neither connects to it nor restarts it. Its own bounded session
-broker starts when account metadata or a credential is requested. Use `pwlock` to stop it. Setup and
+broker starts when `pass` prewarms, account metadata is requested, or a credential
+is copied. Use `pwlock` to stop it. Setup and
 runtime files live under `~/Library/Application Support/Passwords Quick Copy`:
 the pinned extension, a mode-0600 `session.json` (PID/token while running), the
 mode-0600 socket, and `session.log`. Logs contain only allowlisted events and

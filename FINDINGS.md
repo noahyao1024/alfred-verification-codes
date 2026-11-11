@@ -1,5 +1,12 @@
 # Earlier Passwords UI automation findings
 
+Update for 0.8.5: opening the empty `pass` menu starts the isolated browser and
+Apple helper in the background without pairing or reading account data, so typing
+the first website can reuse that startup work. The alias text dialog now assigns
+keyboard focus to its input field. The paired-session limit remains 30 minutes:
+longer retention would enlarge the credential-authorization window rather than
+make already cached warm searches faster.
+
 Update for 0.8.4: a measured cold GitHub search spent 7.1 seconds starting the
 browser and then timed out for 20 seconds before any metadata query because the
 native `CmdHello` reset raced the first SRP challenge. Pairing now waits for

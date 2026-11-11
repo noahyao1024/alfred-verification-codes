@@ -135,6 +135,27 @@ class ReuseTests(unittest.TestCase):
         self.manager.close_session()
         self.assertEqual(self.manager.copy_cache, {})
 
+    def test_prewarm_starts_browser_without_pairing_or_reading(self):
+        result = self.manager.warm({'op': 'warm', 'idle_seconds': 300})
+        owned = self.instances[0]
+        self.assertTrue(result['ok'])
+        self.assertEqual(owned.pairs, 0)
+        self.assertEqual(self.copies, [])
+        self.assertIsNone(owned.scope)
+        self.assertTrue(self.manager.prewarmed_unpaired)
+        self.clock.advance(3)
+        self.manager.tick()
+        self.assertIs(self.manager.session, owned)
+        self.manager.copy(request(idle=30))
+        self.assertIs(self.manager.session, owned)
+        self.assertEqual(owned.pairs, 1)
+        self.assertFalse(self.manager.prewarmed_unpaired)
+        activity = self.manager.last_activity
+        self.clock.advance(10)
+        self.manager.warm({'op': 'warm', 'idle_seconds': 1800})
+        self.assertEqual(self.manager.last_activity, activity)
+        self.assertEqual(self.manager.idle, 30)
+
     def test_lock_between_read_and_clipboard_prevents_delivery(self):
         self.manager.copy(request())
         self.copies.clear()
@@ -220,6 +241,38 @@ class ReuseTests(unittest.TestCase):
         self.assertEqual(owned.pairs, 1)
 
 
+class ClientDispatchTests(unittest.TestCase):
+    def test_dispatch_waits_until_prewarm_releases_operation_slot(self):
+        operation = request()
+        replies = [
+            ({'ok': False, 'message': 'warming', 'warming': True}, 'token-a'),
+            ({'ok': True, 'message': 'copied'}, 'token-a'),
+        ]
+        with patch.object(client, 'rpc', side_effect=replies) as rpc, \
+             patch.object(client.time, 'sleep') as pause:
+            self.assertEqual(client.dispatch(operation), replies[1][0])
+        self.assertEqual(rpc.call_args_list[0].args, (operation,))
+        self.assertEqual(rpc.call_args_list[1].args, (operation,))
+        self.assertEqual(rpc.call_args_list[0].kwargs,
+                         {'expected_token': None, 'return_token': True})
+        self.assertEqual(rpc.call_args_list[1].kwargs,
+                         {'expected_token': 'token-a', 'return_token': True})
+        pause.assert_called_once_with(0.1)
+
+    def test_dispatch_does_not_restart_after_prewarm_is_locked(self):
+        operation = request()
+        for changed, message in ((client.Unavailable(), '预热会话已关闭'),
+                                 (client.SessionChanged(), '预热会话已被锁定或替换')):
+            with self.subTest(message=message), patch.object(client, 'rpc', side_effect=[
+                    ({'ok': False, 'message': 'warming', 'warming': True}, 'token-a'),
+                    changed,
+                 ]), patch.object(client.time, 'sleep'), \
+                 patch.object(client.subprocess, 'Popen') as launch, \
+                 self.assertRaisesRegex(BridgeError, message):
+                client.dispatch(operation)
+            launch.assert_not_called()
+
+
 @unittest.skipUnless(sys.platform == 'darwin', 'Darwin peer credentials required')
 class BrokerIPCTests(unittest.TestCase):
     def setUp(self):
@@ -253,6 +306,43 @@ class BrokerIPCTests(unittest.TestCase):
         for name in ('session.sock', 'session.json'):
             self.assertEqual(stat.S_IMODE((self.root / name).stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(self.root.stat().st_mode), 0o700)
+
+    def test_prewarm_rpc_opens_no_credential_and_reuses_browser(self):
+        warmed = client.rpc({'op': 'warm', 'idle_seconds': 300}, self.root)
+        self.assertTrue(warmed['ok'])
+        self.assertEqual(len(self.instances), 1)
+        self.assertEqual(self.instances[0].pairs, 0)
+        self.assertEqual(self.copies, [])
+        self.assertTrue(client.metadata(self.root)['prewarm_v1'])
+        copied = client.rpc(request(), self.root)
+        self.assertTrue(copied['ok'])
+        self.assertEqual(len(self.instances), 1)
+        self.assertEqual(self.instances[0].pairs, 1)
+
+    def test_foreground_request_is_told_to_retry_during_cold_prewarm(self):
+        entered, release = threading.Event(), threading.Event()
+        original = self.factory.__enter__
+        def slow_start(instance):
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError('prewarm was not released')
+            return original(instance)
+        warmed = []
+        with patch.object(self.factory, '__enter__', slow_start):
+            caller = threading.Thread(target=lambda: warmed.append(
+                client.rpc({'op': 'warm', 'idle_seconds': 300}, self.root)))
+            caller.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                foreground = client.rpc(request(), self.root)
+                self.assertFalse(foreground['ok'])
+                self.assertTrue(foreground['warming'])
+                self.assertEqual(self.copies, [])
+            finally:
+                release.set()
+                caller.join(timeout=5)
+        self.assertFalse(caller.is_alive())
+        self.assertTrue(warmed[0]['ok'])
 
     def test_wrong_token_and_foreign_uid_rejected(self):
         info = client.metadata(self.root)

@@ -1,19 +1,19 @@
-# Security scope of version 0.8.4
+# Security scope of version 0.8.5
 
 This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.8.4 behavior |
+| Boundary | Version 0.8.5 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
 | Session lifetime | 30 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
 | Lock handling | Native screen-lock, session-inactive, and sleep notifications plus console-state checks; monitoring failure closes access |
-| Client IPC | Copy/login/catalog/select/status/stop only; mode-0600 Unix socket and random per-session token in a mode-0700 directory; same OS user required |
+| Client IPC | Warm/copy/login/catalog/select/status/stop only; mode-0600 Unix socket and random per-session token in a mode-0700 directory; same OS user required |
 | Credential delivery | Account metadata may return for Alfred results; secrets are copied inside the broker and never returned over the client socket |
 | Operation scope | Validated type/domain/username per request; scope cleared between requests; no raw native command or evaluation endpoint |
 | Manual control | `pwlock` cancels an in-flight operation and waits for shutdown |
-| Idle accounting | Valid copy attempts refresh idle time; status and worker keepalive do not; active pairing is not interrupted by idle time |
+| Idle accounting | Valid operations refresh idle time; prewarming an existing session, status, and worker keepalive do not; active pairing is not interrupted by idle time |
 | Extension | Exact pinned archive hash; explicit setup; no silent runtime replacement |
 | Clipboard | Concealed/transient markers and generation-based timed clearing; cleanup retains no credential |
 | Account UI | Searchable Alfred results show username/title/sites; aliases and selected results bind exact metadata, not a result index or password hash |
@@ -24,6 +24,12 @@ before clipboard delivery, and clears operation scope afterward. A lookup that
 needs a more specific username can retain pairing. Cancelled pairing, protocol
 failure, or a disconnected browser discards that browser. Apple can invalidate
 pairing independently; the next copy must pair again.
+
+Opening the empty `pass` menu may start the isolated browser and native helper
+ahead of the first query. Prewarming does not pair, query account metadata, read
+a credential, show a PIN prompt, or extend an existing session's idle deadline.
+The unpaired browser remains subject to the same idle and absolute lifetime
+bounds and is reused by the first explicit website query.
 
 The extension waits for Apple's initial native `CmdHello` response before
 starting SRP pairing, because that response resets the native SecretSession and

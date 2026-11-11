@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.8.4")
+VERSION = os.environ.get("VERSION", "0.8.5")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -215,12 +215,13 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
+* Opening `pass` prewarms the isolated browser without pairing, querying accounts, or reading credentials.
 * `pass github [search text]`: use one keyword path, query `github.com` automatically, and show matching password accounts directly in Alfred.
 * Full domains and URLs use the same input path; exact aliases keep priority.
 * `pass codes github`: show verification-code-only accounts on demand.
 * The copied value appears in a temporary native window for manual typing. Click \
 Copy Verification Code when ready; its value is read only then. Initial discovery uses metadata, not OTP values.
-* Use Set Alias in the window, then `pass gh-work` to reuse that exact account.
+* Use Set Alias in the window (the input receives keyboard focus), then `pass gh-work` to reuse that exact account.
 * `pass alias`: list aliases; Command-Return renames, Option-Return removes an alias.
 * `pass alias add gh-work github.com [username]`: bind an alias without copying a secret.
 * `pass setup` prepares the extension; `pass lock` closes the active session.
@@ -233,7 +234,8 @@ Notification Center. By request, the copied value is displayed in a temporary \
 local window (disable Show copied value if desired); screen viewers can see it.
 Aliases store account identifiers only, never a password or OTP seed.
 Clipboard privacy markers request exclusion from history.
-The first account search starts a bounded session. Pairing is reused until 30 minutes \
+The empty `pass` menu may start the unpaired browser; the first account search \
+starts pairing. Pairing is reused until 30 minutes \
 of inactivity by default, screen lock, sleep/session switch, manual pwlock, \
 or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
 The idle timeout is configurable. A later copy starts a fresh session.
