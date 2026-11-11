@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.8.3")
+VERSION = os.environ.get("VERSION", "0.8.4")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -93,7 +93,7 @@ objects = [
         "version": 1,
     },
     scriptfilter(KW_PASSWORD, "{var:passwordkeyword}", "密码、验证码与别名",
-                 "输入网站或别名；账号直接显示在 Alfred，回车复制",
+                 "输入关键词或别名；账号直接显示在 Alfred，回车复制",
                  '/usr/bin/python3 -I apple-passwords.py --menu "$1"'),
     runscript(S_PASSWORD, '/usr/bin/python3 -I apple-passwords.py --act "$1"'),
     keyword(KW_APP_OTP, "{var:appleotpkeyword}", "复制 Apple Passwords 验证码",
@@ -150,7 +150,7 @@ uidata = {
 userconfig = [
     {
         "config": {"default": "pass", "placeholder": "pass", "required": True, "trim": True},
-        "description": "统一入口：pass 网站域名、pass 别名、pass alias、pass lock。",
+        "description": "统一入口：pass 关键词、pass 别名、pass alias、pass lock。",
         "label": "Main keyword", "type": "textfield", "variable": "passwordkeyword",
     },
     {
@@ -179,8 +179,8 @@ userconfig = [
         "label": "Lock keyword", "type": "textfield", "variable": "lockkeyword",
     },
     {
-        "config": {"default": "300", "placeholder": "300", "required": True, "trim": True},
-        "description": "空闲多少秒后关闭会话，范围 30–1800。锁屏时也会关闭；单次会话最长 30 分钟。",
+        "config": {"default": "1800", "placeholder": "1800", "required": True, "trim": True},
+        "description": "空闲多少秒后关闭会话，范围 30–1800，默认 1800。锁屏时也会关闭；单次会话最长 30 分钟。",
         "label": "Session idle timeout (seconds)", "type": "textfield", "variable": "SESSION_IDLE_SECONDS",
     },
     {
@@ -215,9 +215,9 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
-* `pass github` shows a visible `github.com` completion and an original-host option; alias matches keep priority.
-* `pass github.com [search text]`: show matching password accounts directly in Alfred, then select and copy.
-* `pass codes github.com`: show verification-code-only accounts on demand.
+* `pass github [search text]`: use one keyword path, query `github.com` automatically, and show matching password accounts directly in Alfred.
+* Full domains and URLs use the same input path; exact aliases keep priority.
+* `pass codes github`: show verification-code-only accounts on demand.
 * The copied value appears in a temporary native window for manual typing. Click \
 Copy Verification Code when ready; its value is read only then. Initial discovery uses metadata, not OTP values.
 * Use Set Alias in the window, then `pass gh-work` to reuse that exact account.
@@ -233,7 +233,7 @@ Notification Center. By request, the copied value is displayed in a temporary \
 local window (disable Show copied value if desired); screen viewers can see it.
 Aliases store account identifiers only, never a password or OTP seed.
 Clipboard privacy markers request exclusion from history.
-The first copy starts a short-lived session. Pairing is reused until 5 minutes \
+The first account search starts a bounded session. Pairing is reused until 30 minutes \
 of inactivity by default, screen lock, sleep/session switch, manual pwlock, \
 or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
 The idle timeout is configurable. A later copy starts a fresh session.
@@ -285,7 +285,7 @@ wf = {
     "userconfigurationconfig": userconfig,
     "variables": {"otpkeyword": "otp", "otpaddkeyword": "otpadd",
                   "passwordkeyword": "pass", "appleotpkeyword": "pcode",
-                  "pairkeyword": "pwsetup", "lockkeyword": "pwlock", "SESSION_IDLE_SECONDS": "300",
+                  "pairkeyword": "pwsetup", "lockkeyword": "pwlock", "SESSION_IDLE_SECONDS": "1800",
                   "SHOW_SECRETS": "1", "DISPLAY_SECONDS": "45",
                   "CLEAR_CLIPBOARD_AFTER": "45"},
     "variablesdontexport": [],

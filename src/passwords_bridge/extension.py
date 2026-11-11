@@ -94,9 +94,42 @@ def extract(data, destination):
     config = {"statusOk": 0, "statusInvalidParam": 2, "statusInvalidSession": 9,
               "statusServerError": 100, "nativeTimeoutMs": 25000, "wireUnpaired": "unpaired",
               "domain": "", "username": ""}
+    readiness = r'''
+globalThis.__passwordsNativeReady=false;
+globalThis.__passwordsNativeGeneration=0;
+{
+  const originalConnectNative=chrome.runtime.connectNative.bind(chrome.runtime);
+  chrome.runtime.connectNative=function(...args) {
+    const port=originalConnectNative(...args);
+    const generation=++globalThis.__passwordsNativeGeneration;
+    globalThis.__passwordsNativeReady=false;
+    port.onMessage.addListener((message) => {
+      // Apple's listener is registered after this wrapper. Defer our observer
+      // until it has reset/advanced SecretSession and parsed the native reply,
+      // preserving the ordering used by the original appended bridge listener.
+      queueMicrotask(() => {
+        if (generation!==globalThis.__passwordsNativeGeneration) return;
+        if (message && message.cmd===14) globalThis.__passwordsNativeReady=true;
+        if (typeof globalThis.__passwordsBridgeNativeReply==="function")
+          globalThis.__passwordsBridgeNativeReply(message);
+      });
+    });
+    port.onDisconnect.addListener(() => {
+      queueMicrotask(() => {
+        if (generation===globalThis.__passwordsNativeGeneration) {
+          globalThis.__passwordsNativeReady=false;
+          if (typeof globalThis.__passwordsBridgeNativeReply==="function")
+            globalThis.__passwordsBridgeNativeReply({__passwordsNativeDisconnected:true});
+        }
+      });
+    });
+    return port;
+  };
+}
+'''
     background = destination / "background.js"
     bridge = (Path(__file__).parent / "apw_bridge.js").read_text()
-    background.write_text("globalThis.__passwordsConfig=" + json.dumps(config) + ";\n" +
+    background.write_text("globalThis.__passwordsConfig=" + json.dumps(config) + ";\n" + readiness +
                           background.read_text() + "\n" + bridge)
 
 

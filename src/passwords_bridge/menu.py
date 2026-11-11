@@ -101,29 +101,13 @@ def menu(query, store=None):
     exact = [record for record in matches if record['name'].casefold() == needle.casefold()]
     matches = exact + [record for record in matches if record not in exact]
     items = [alias_item(record) for record in matches]
-    if not alias_mode and query and not query.startswith('@'):
-        parts = query.split(maxsplit=1)
-        name, remainder = parts[0], (' ' + parts[1] if len(parts) == 2 else '')
-        if '.' in name or '://' in name or ':' in name:
-            items.insert(0, action_item('查询 ' + display_text(query), '直接在 Alfred 中显示账号', 'search', query=query))
-        else:
-            # Alias matches keep priority. Every inferred site is shown in full
-            # before Enter; a short brand name is not a whole-vault search API.
-            known = sorted({record['domain'] for record in records if name.casefold() in record['domain'].casefold()})
-            domains = known + ([name + '.com'] if name + '.com' not in known and name != 'localhost' else [])
-            for domain in domains:
-                items.append(action_item('查询 ' + display_text(domain + remainder),
-                    '已知网站' if domain in known else '短名称补全为 .com；其他后缀可直接输入完整域名',
-                    'search', query=domain + remainder))
-            items.append(action_item('查询原样名称 ' + display_text(query), '用于内网或单段主机名，不自动补后缀',
-                                     'search', query='site ' + query))
     if not query:
-        items += [action_item('查找网站账号…', '输入网站后显示可搜索的账号列表', 'prompt'),
+        items += [{'title': '直接输入关键词，例如 github', 'subtitle': '自动查询 github.com，并在 Alfred 中显示账号', 'valid': False},
                   action_item('准备扩展', '首次使用时运行一次', 'setup'),
                   action_item('锁定会话', '结束已配对会话', 'lock'),
                   action_item('使用与别名管理帮助', '也可输入 pass alias 查看已保存的别名', 'help')]
     elif not items:
-        items = [{'title': '没有匹配的别名', 'subtitle': '输入完整网站域名查询，选中账号后可设置别名', 'valid': False}]
+        items = [{'title': '继续输入关键词', 'subtitle': '至少两个字符；无需区分短名称、域名或网址', 'valid': False}]
     if alias_mode:
         items.append({'title': '管理别名：回车使用，⌘回车重命名，⌥回车删除',
                       'subtitle': '添加：pass alias add 别名 网站域名；也可在复制弹窗中设置', 'valid': False})

@@ -24,7 +24,7 @@ from passwords_bridge.performance import stats_menu
 def parse_query(query):
     parts = query.strip().split(maxsplit=1)
     if not parts:
-        raise BridgeError("请输入网站域名，例如 pass github.com；多个账号时在后面加用户名。")
+        raise BridgeError("请输入关键词，例如 pass github；多个账号时可在后面加过滤词。")
     site = parts[0]
     try:
         parsed = urlsplit(site if "://" in site else "https://" + site)
@@ -38,7 +38,7 @@ def parse_query(query):
                            for label in labels):
             raise ValueError
     except (ValueError, UnicodeError):
-        raise BridgeError("请输入有效的网站域名或 http/https 链接。") from None
+        raise BridgeError("请输入有效的网站关键词、域名或 http/https 链接。") from None
     # Query arguments are never shell code. Copy requests use the remainder as an
     # exact username; Alfred catalog requests use it only as local filter text.
     return host.rstrip("."), parts[1].strip() if len(parts) == 2 else ""
@@ -56,12 +56,12 @@ def clear_seconds():
 
 def idle_seconds():
     try:
-        value = int(os.environ.get('SESSION_IDLE_SECONDS', '300'))
+        value = int(os.environ.get('SESSION_IDLE_SECONDS', '1800'))
         if not 30 <= value <= 1800:
             raise ValueError
         return value
     except ValueError:
-        raise BridgeError('会话空闲时长必须为 30–1800 秒，默认 300 秒。') from None
+        raise BridgeError('会话空闲时长必须为 30–1800 秒，默认 1800 秒。') from None
 
 
 def display_settings():
@@ -76,28 +76,38 @@ def display_settings():
 
 def catalog_query(query):
     raw = query.strip()
-    mode, forced = 'password', False
+    mode = 'password'
     if raw.startswith('codes '):
-        mode, raw, forced = 'otp', raw[6:].strip(), True
-    elif raw.startswith('site '):
-        raw, forced = raw[5:].strip(), True
+        mode, raw = 'otp', raw[6:].strip()
     if not raw:
+        return None
+    token = raw.split(maxsplit=1)[0]
+    explicit_url = '://' in token
+    if len(token) < 2 and '.' not in token:
         return None
     try:
         domain, needle = parse_query(raw)
     except BridgeError:
-        if forced:
-            raise
-        return None
-    if not forced and '.' not in domain and domain != 'localhost':
-        return None
+        raise
+    # Apple still exposes a website-scoped API, but the Alfred UX is one keyword
+    # path: bare words are resolved to their common .com destination silently.
+    if not explicit_url and '.' not in domain and domain != 'localhost':
+        domain += '.com'
     return domain, needle, mode
+
+
+def local_menu_query(query):
+    value = query.strip()
+    return (not value or value in {'setup', 'lock', 'help', 'alias', 'codes'} or
+            value.startswith('alias '))
 
 
 def direct_menu(query, store=None):
     if query.strip() == 'stats':
         return stats_menu(data_dir() / 'session.log')
     store = store or AliasStore()
+    if local_menu_query(query):
+        return menu(query, store)
     candidate = query.strip().lstrip('@').casefold()
     if candidate and ' ' not in candidate and any(
             record['name'].casefold() == candidate for record in store.all()):
@@ -150,7 +160,7 @@ def interactive(action):
         return result['ok'], result['message']
     ui = LocalUI()
     if kind == 'help':
-        ui.message('Passwords Quick Copy', 'pass 网站域名：选择账号，复制密码后可继续复制验证码。\npass 别名：使用已保存账号。\n复制窗口可设置别名。\npass alias：查看、重命名或删除别名。\npass lock：锁定会话。')
+        ui.message('Passwords Quick Copy', 'pass 关键词：账号直接显示在 Alfred；短词自动按 .com 查询。\npass 别名：使用已保存账号。\n复制窗口可设置别名。\npass alias：查看、重命名或删除别名。\npass lock：锁定会话。')
         return True, '帮助已关闭。'
     if kind in ('rename', 'remove'):
         store = AliasStore()
@@ -161,7 +171,7 @@ def interactive(action):
         store.rename(action['name'], new)
         return True, '别名已重命名。'
     if kind == 'prompt':
-        query = ui.text('查找网站账号', '输入网站域名，可在后面加用户名，例如 github.com me@example.com。')
+        query = ui.text('查找网站账号', '输入关键词，可在后面加账号过滤词，例如 github me@example.com。')
         if query is None: return True, '已取消查询。'
         action = {'action': 'login', 'query': query}
     alias = action.get('alias', '')

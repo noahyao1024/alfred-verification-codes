@@ -38,11 +38,14 @@ class QueryTests(unittest.TestCase):
             with patch.dict(os.environ, {"CLEAR_CLIPBOARD_AFTER": value}), self.assertRaises(BridgeError):
                 app.clear_seconds()
 
-    def test_direct_catalog_syntax_keeps_short_names_as_visible_completions(self):
-        self.assertIsNone(app.catalog_query('github'))
+    def test_catalog_uses_one_keyword_path(self):
+        self.assertEqual(app.catalog_query('github'), ('github.com', '', 'password'))
+        self.assertEqual(app.catalog_query('github ali'), ('github.com', 'ali', 'password'))
         self.assertEqual(app.catalog_query('github.com ali'), ('github.com', 'ali', 'password'))
-        self.assertEqual(app.catalog_query('codes github.com'), ('github.com', '', 'otp'))
-        self.assertEqual(app.catalog_query('site intranet bob'), ('intranet', 'bob', 'password'))
+        self.assertEqual(app.catalog_query('https://github.com/login ali'), ('github.com', 'ali', 'password'))
+        self.assertEqual(app.catalog_query('http://intranet ali'), ('intranet', 'ali', 'password'))
+        self.assertEqual(app.catalog_query('codes github'), ('github.com', '', 'otp'))
+        self.assertIsNone(app.catalog_query('g'))
 
 
 class FrontendTests(unittest.TestCase):
@@ -87,14 +90,14 @@ class FrontendTests(unittest.TestCase):
 
     def test_direct_menu_returns_secret_free_alfred_results(self):
         identity = {'kind': 'password', 'username': 'alice', 'title': 'Personal',
-                    'sites': ['example.com']}
+                    'sites': ['github.com']}
         reply = {'ok': True, 'mode': 'password', 'fallback': False,
                  'accounts': [{'identity': identity, 'duplicate': False}]}
         with tempfile.TemporaryDirectory() as root, \
              patch.object(app, 'request_catalog', return_value=reply) as request, \
              patch.dict(os.environ, {'SESSION_IDLE_SECONDS': '300'}):
-            result = app.direct_menu('example.com ali', app.AliasStore(root))
-        request.assert_called_once_with('example.com', 'password', 300)
+            result = app.direct_menu('github ali', app.AliasStore(root))
+        request.assert_called_once_with('github.com', 'password', 300)
         self.assertEqual(json.loads(result['items'][0]['arg'])['action'], 'select')
         self.assertNotIn('SECRET-', json.dumps(result))
 
@@ -125,6 +128,10 @@ class FrontendTests(unittest.TestCase):
             with patch.dict(os.environ, {'SESSION_IDLE_SECONDS': value}), self.assertRaises(BridgeError):
                 app.idle_seconds()
 
+    def test_idle_default_keeps_the_warm_session_for_thirty_minutes(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(app.idle_seconds(), 1800)
+
     def test_context_closes_before_secret_returns(self):
         events = []
         with patch.object(session, "PasswordSession") as constructor:
@@ -145,6 +152,34 @@ class FrontendTests(unittest.TestCase):
                 session.read_secret("otp", "example.com", "user")
             owned.__exit__.assert_called_once()
             owned.read.assert_not_called()
+
+    def test_pairing_challenge_has_a_short_bounded_wait(self):
+        owned = session.PasswordSession('example.com')
+        with patch.object(owned, 'wait_native_ready',
+                          return_value={'nativeReady': True}) as ready, \
+             patch.object(owned, 'request', return_value={'status': 0}) as request, \
+             patch.object(owned, 'wait_state',
+                          side_effect=session.PairingTimeout('timeout')) as wait, \
+             patch.object(owned, 'prompt_pin') as prompt, \
+             self.assertRaises(session.PairingTimeout):
+            owned.pair()
+        ready.assert_called_once_with()
+        request.assert_called_once_with({'cmd': 2})
+        self.assertEqual(wait.call_args_list[0].args, ('MSG1Set',))
+        self.assertEqual(wait.call_args_list[0].kwargs, {'timeout': 12})
+        prompt.assert_not_called()
+
+    def test_pairing_does_not_submit_pin_after_native_reconnect(self):
+        owned = session.PasswordSession('example.com')
+        with patch.object(owned, 'wait_native_ready',
+                          side_effect=[{'nativeReady': True},
+                                       {'nativeReady': True, 'state': 'NotInSession'}]), \
+             patch.object(owned, 'request', return_value={'status': 0}) as request, \
+             patch.object(owned, 'wait_state'), \
+             patch.object(owned, 'prompt_pin', return_value='123456'), \
+             self.assertRaisesRegex(BridgeError, '连接已重置'):
+            owned.pair()
+        request.assert_called_once_with({'cmd': 2})
 
 
 class ResultTests(unittest.TestCase):

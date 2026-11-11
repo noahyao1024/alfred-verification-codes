@@ -26,14 +26,22 @@ from .aliases import AliasStore, alias_name
 
 
 PROTOCOL = 1
-DEFAULT_IDLE = 300
+DEFAULT_IDLE = 1800
 MAX_LIFETIME = 1800
 MAX_PACKET = 16384
-CATALOG_TTL = 30
+CATALOG_TTL = MAX_LIFETIME
 
 
 class SessionExpired(BridgeError):
     pass
+
+
+class RequestCancelled(BridgeError):
+    pass
+
+
+class WarmSessionRequestCancelled(RequestCancelled):
+    """A stale prefix query ended after producing a reusable browser session."""
 
 
 def validate_copy(request):
@@ -120,6 +128,8 @@ class SessionManager:
         self.busy = False
         self.expired = False
         self.cancelled = threading.Event()
+        self.request_cancelled = threading.Event()
+        self.starting_session = False
         self.log = log
         self.perf_clock = perf_clock
         self.alias_store = alias_store
@@ -157,10 +167,20 @@ class SessionManager:
         if self.session is None:
             self.clear_cache()
             started = self.perf_clock()
+            candidate = self.factory(domain, username, mode, guard=self.guard)
+            self.starting_session = True
             try:
-                self.session = self.factory(domain, username, mode, guard=self.guard)
-                self.session.__enter__()
+                candidate.__enter__()
+                self.session = candidate
+                if self.request_cancelled.is_set():
+                    # Alfred starts a query as soon as a short prefix is typed.
+                    # Finish the one expensive browser startup, but do not pair or
+                    # query that stale prefix. The newest rerun can reuse the browser.
+                    candidate.clear_scope()
+                    self.last_poke = self.clock()  # give Alfred's 0.5s rerun a warm-session grace period
+                    raise WarmSessionRequestCancelled('Alfred 搜索内容已更新。')
             finally:
+                self.starting_session = False
                 self.record_performance('browser_startup', started)
         self.session.set_scope(domain, username, mode)
         if not self.session.state().get('paired'):
@@ -176,6 +196,8 @@ class SessionManager:
     def guard(self):
         now, wall = self.clock(), self.wall()
         reason = None
+        if self.request_cancelled.is_set() and not self.starting_session:
+            raise RequestCancelled('Alfred 搜索内容已更新。')
         if self.cancelled.is_set():
             reason = 'manual_lock'
         elif self.monitor.blocked():
@@ -285,6 +307,7 @@ class SessionManager:
         self.busy = True
         self.idle = request['idle_seconds']
         started = self.perf_clock()
+        warm_cancel = False
         try:
             key = (request['domain'], request['mode'])
             cached = self.catalog_cache.get(key)
@@ -305,13 +328,16 @@ class SessionManager:
             self.catalog_cache[(request['domain'], mode)] = cached
             return {'ok': True, 'mode': mode, 'accounts': self._public_accounts(accounts),
                     'fallback': request['mode'] == 'password' and mode == 'otp'}
+        except WarmSessionRequestCancelled:
+            warm_cancel = True
+            raise
         except BaseException:
             self.close_session()
             raise
         finally:
             self.record_performance('catalog_total', started)
             try:
-                if self.session:
+                if self.session and not warm_cancel:
                     self.session.clear_scope()
             except Exception:
                 self.close_session()
@@ -427,6 +453,15 @@ def send_result(connection, result):
         connection.close()
 
 
+def peer_disconnected(connection):
+    try:
+        if not select.select([connection], [], [], 0)[0]:
+            return False
+        return connection.recv(1, socket.MSG_PEEK) == b''
+    except OSError:
+        return True
+
+
 def metadata_write(root, token):
     fd, temporary = tempfile.mkstemp(prefix='session-meta-', dir=str(root))
     try:
@@ -434,7 +469,7 @@ def metadata_write(root, token):
             json.dump({'v': PROTOCOL, 'pid': os.getpid(), 'token': token,
                        'interactive': True, 'lazy_otp': True, 'lazy_passwords': True,
                        'credential_cache': True, 'alfred_catalog': True,
-                       'performance_v1': True}, stream)
+                       'performance_v1': True, 'native_ready_v1': True}, stream)
         os.replace(temporary, root / 'session.json')
     finally:
         Path(temporary).unlink(missing_ok=True)
@@ -517,6 +552,10 @@ def serve(root=None, monitor_factory=LockMonitor, session_factory=PasswordSessio
             if future is not None and future.done():
                 send_result(pending, future.result())
                 pending = future = None
+                manager.request_cancelled.clear()
+            elif (future is not None and pending is not None and
+                  not manager.request_cancelled.is_set() and peer_disconnected(pending)):
+                manager.request_cancelled.set()
             if future is None:
                 manager.tick()
             if manager.cancelled.is_set() or manager.expired:
@@ -539,6 +578,7 @@ def serve(root=None, monitor_factory=LockMonitor, session_factory=PasswordSessio
                     request = validators[request['op']](request)
                     if future is not None:
                         raise BridgeError('已有复制操作进行中，请完成或取消配对后重试。')
+                    manager.request_cancelled.clear()
                     pending = connection
                     future = executor.submit(perform, manager, request)
                 else:

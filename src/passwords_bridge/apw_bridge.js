@@ -27,7 +27,11 @@
   // out the pairing timeout.
   function readState() {
     const state = typeof g_theState !== "undefined" ? g_theState : null;
-    return { paired: state === "SessionKeySet", state: state };
+    // The official worker sends CmdHello as soon as it opens the native port.
+    // Starting SRP before that reply can be lost when the hello handler resets
+    // SecretSession back to NotInSession.
+    const nativeReady = globalThis.__passwordsNativeReady === true;
+    return { paired: state === "SessionKeySet" && nativeReady, state: state, nativeReady: nativeReady };
   }
 
   function clearPending() {
@@ -37,6 +41,11 @@
 
   function pair(message) {
     try {
+      // Pairing is synchronous within this worker task, so this closes the
+      // readiness/state race between the Python-side poll and ChallengePIN/PINSet.
+      if (globalThis.__passwordsNativeReady !== true) {
+        return { status: INVALID_SESSION, error: "native helper not ready" };
+      }
       if (message.pin == null) {
         if (typeof ChallengePIN !== "function") return { status: SERVER_ERROR, error: "pairing unavailable" };
         // ChallengePIN() only starts a handshake from NotInSession; from any other state it
@@ -56,6 +65,9 @@
         ChallengePIN();
       } else {
         if (typeof PINSet !== "function") return { status: SERVER_ERROR, error: "pairing unavailable" };
+        if (typeof g_theState === "undefined" || g_theState !== "MSG1Set") {
+          return { status: INVALID_SESSION, error: "pairing state changed" };
+        }
         PINSet(String(message.pin));
       }
       return { status: OK };
@@ -103,6 +115,9 @@
     if (typeof g_nativeAppPort === "undefined" || !g_nativeAppPort) {
       return { status: INVALID_SESSION, error: "extension not ready" };
     }
+    if (globalThis.__passwordsNativeReady !== true) {
+      return { status: INVALID_SESSION, error: "native helper not ready" };
+    }
     if (typeof g_theState === "undefined" || g_theState !== "SessionKeySet") {
       return { status: INVALID_SESSION, error: UNPAIRED };
     }
@@ -146,6 +161,13 @@
   // Runs on Apple's native-message callback; nothing here may throw.
   function reply(message) {
     if (!message || typeof message !== "object") return;
+    if (message.__passwordsNativeDisconnected === true) {
+      if (!pending) return;
+      const resolve = pending.resolve;
+      clearPending();
+      resolve({ status: INVALID_SESSION, error: "native helper disconnected" });
+      return;
+    }
     if (!pending) return;
     const matches = message.cmd === pending.cmd;
     if (!matches) return;
@@ -163,26 +185,20 @@
 
   // These functions are reachable only within the extension worker. The owner
   // invokes them through the inherited pipe and clears scope after each read.
+  globalThis.__passwordsBridgeNativeReply = reply;
   globalThis.__passwordsBridge = Object.freeze({state: readState, request: request});
 
   // The parent polls state while the bounded PIN dialog is open.
 
-  // Ensure the native port exists and route its replies to us. Apple's code can
-  // throw here (e.g. no native host installed); requests re-check the port per
-  // call, so a failed hookup degrades to "extension not ready", not a dead worker.
+  // Ensure the native port exists. The generation-aware wrapper installed before
+  // Apple's worker routes every current port's replies to the callback above.
+  // Apple's code can throw here (e.g. no native host installed); requests re-check
+  // the port per call, so a failure degrades to "extension not ready".
   try {
     if (typeof g_nativeAppPort === "undefined" || !g_nativeAppPort) {
       if (typeof connectToBackgroundNativeAppAndSetUpListeners === "function") {
         connectToBackgroundNativeAppAndSetUpListeners();
       }
-    }
-    if (
-      typeof g_nativeAppPort !== "undefined" &&
-      g_nativeAppPort &&
-      g_nativeAppPort.onMessage &&
-      typeof g_nativeAppPort.onMessage.addListener === "function"
-    ) {
-      g_nativeAppPort.onMessage.addListener(reply);
     }
   } catch (_e) {
     /* ignore */

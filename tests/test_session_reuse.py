@@ -184,6 +184,41 @@ class ReuseTests(unittest.TestCase):
             with self.assertRaises(BridgeError): self.manager.copy(bad)
         self.assertEqual(self.instances, [])
 
+    def test_client_query_cancellation_does_not_expire_the_broker(self):
+        self.manager.request_cancelled.set()
+        with self.assertRaises(broker.RequestCancelled):
+            self.manager.guard()
+        self.assertFalse(self.manager.expired)
+        self.manager.request_cancelled.clear()
+        self.manager.guard()
+
+    def test_stale_prefix_finishes_browser_startup_for_latest_query(self):
+        manager = self.manager
+        class CancelDuringStartup(self.factory):
+            def __enter__(self):
+                manager.clock.advance(7)
+                manager.request_cancelled.set()
+                self.guard()  # cancellation is deferred only during startup
+                return self
+            def entries(self, mode):
+                return []
+        manager.factory = CancelDuringStartup
+        catalog = {'op': 'catalog', 'mode': 'password', 'domain': 'github.com',
+                   'idle_seconds': 300}
+        with self.assertRaises(broker.WarmSessionRequestCancelled):
+            manager.catalog(catalog)
+        owned = manager.session
+        self.assertIsNotNone(owned)
+        self.assertFalse(owned.closed)
+        self.assertIsNone(owned.scope)
+        self.assertEqual(owned.pairs, 0)
+        manager.request_cancelled.clear()
+        manager.tick()  # the service loop must not reap the just-warmed browser
+        self.assertIs(manager.session, owned)
+        self.assertTrue(manager.catalog(catalog)['ok'])
+        self.assertIs(manager.session, owned)
+        self.assertEqual(owned.pairs, 1)
+
 
 @unittest.skipUnless(sys.platform == 'darwin', 'Darwin peer credentials required')
 class BrokerIPCTests(unittest.TestCase):
@@ -230,6 +265,15 @@ class BrokerIPCTests(unittest.TestCase):
         self.assertEqual(self.copies, [])
         with self.assertRaises(BridgeError):
             broker.authorize(dict(request(), v=broker.PROTOCOL, token=info['token']), info['token'], os.geteuid() + 1)
+
+    def test_closed_script_filter_socket_is_detected(self):
+        first, second = socket.socketpair()
+        try:
+            self.assertFalse(broker.peer_disconnected(first))
+            second.close()
+            self.assertTrue(broker.peer_disconnected(first))
+        finally:
+            first.close()
 
     def test_no_raw_read_or_eval_endpoint(self):
         for op in ('read', 'eval', 'save'):

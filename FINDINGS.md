@@ -1,5 +1,13 @@
 # Earlier Passwords UI automation findings
 
+Update for 0.8.4: a measured cold GitHub search spent 7.1 seconds starting the
+browser and then timed out for 20 seconds before any metadata query because the
+native `CmdHello` reset raced the first SRP challenge. Pairing now waits for
+per-port native readiness and caps a stalled challenge at 12 seconds without
+mixing SRP exchanges. Short names, domains, and URLs share one keyword path
+(`github` resolves directly to `github.com`), metadata is cached for the bounded
+session, and the default warm idle time is 30 minutes.
+
 Update for 0.8.3: website-scoped account metadata now renders directly as
 Alfred Script Filter results. The common password path performs only the `cmd 4`
 metadata query before showing results; OTP metadata is lazy, and aliases/direct

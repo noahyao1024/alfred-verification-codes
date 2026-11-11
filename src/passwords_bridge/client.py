@@ -69,6 +69,7 @@ def rpc(request, root=None):
 def request_copy(mode, domain, username, clear_after, idle_seconds):
     request = validate_copy({'op': 'copy', 'mode': mode, 'domain': domain, 'username': username,
                              'clear_after': clear_after, 'idle_seconds': idle_seconds})
+    retire_incompatible_broker()
     return dispatch(request)
 
 
@@ -99,7 +100,8 @@ def retire_incompatible_broker():
     """Replace a pre-catalog broker before sending a new protocol operation."""
     try:
         info = metadata(data_dir())
-        if not info.get('alfred_catalog') or not info.get('performance_v1'):
+        if (not info.get('alfred_catalog') or not info.get('performance_v1') or
+                not info.get('native_ready_v1')):
             result = lock_session()
             if not result['ok']:
                 raise BridgeError(result['message'])

@@ -176,6 +176,10 @@ class FlowTests(unittest.TestCase):
 
     def test_catalog_returns_passwords_before_any_otp_query_and_caches_metadata(self):
         first = self.manager.catalog(catalog_request())
+        self.manager.catalog_cache = {
+            key: (cached[0] - 60, *cached[1:])
+            for key, cached in self.manager.catalog_cache.items()
+        }
         second = self.manager.catalog(catalog_request())
         self.assertEqual(first['mode'], 'password')
         self.assertEqual(len(first['accounts']), 2)
@@ -362,21 +366,19 @@ class AliasAndMenuTests(unittest.TestCase):
         for action in ({'action': 'eval', 'script': 'bad'}, {'action': 'login', 'query': 'a', 'password': 'SECRET'}):
             with self.assertRaises(BridgeError): validate_action(action)
 
-    def test_short_name_offers_visible_com_completion_and_original_host(self):
-        items = menu('github alice', self.store)['items']
-        actions = [json.loads(item['arg']) for item in items if 'arg' in item]
-        self.assertEqual(actions[0], {'action': 'search', 'query': 'github.com alice'})
-        self.assertIn({'action': 'search', 'query': 'site github alice'}, actions)
-        self.assertIn('github.com', items[0]['title'])
+    def test_menu_no_longer_offers_separate_domain_or_original_host_paths(self):
+        items = menu('g', self.store)['items']
+        self.assertFalse(any('arg' in item for item in items))
+        self.assertIn('无需区分', items[0]['subtitle'])
 
-    def test_alias_matches_keep_priority_over_short_name_completion(self):
+    def test_alias_matches_keep_priority_over_keyword_search(self):
         self.store.put('work', self.binding)
         self.assertEqual(json.loads(menu('work', self.store)['items'][0]['arg']), {'action': 'login', 'alias': 'work'})
         self.assertEqual(json.loads(menu('@work', self.store)['items'][0]['arg']), {'action': 'login', 'alias': 'work'})
 
-    def test_other_suffix_and_localhost_are_not_forced_to_com(self):
-        self.assertEqual(json.loads(menu('example.org', self.store)['items'][0]['arg'])['query'], 'example.org')
-        self.assertEqual(json.loads(menu('localhost', self.store)['items'][0]['arg'])['query'], 'site localhost')
+    def test_empty_menu_explains_unified_keyword_input(self):
+        result = menu('', self.store)
+        self.assertIn('直接输入关键词', result['items'][0]['title'])
 
     def test_catalog_menu_filters_in_alfred_and_carries_metadata_only(self):
         accounts = [{'identity': account_list(PASSWORDS, 'password', 'example.com',

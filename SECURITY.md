@@ -1,13 +1,13 @@
-# Security scope of version 0.8.3
+# Security scope of version 0.8.4
 
 This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.8.3 behavior |
+| Boundary | Version 0.8.4 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
-| Session lifetime | 5 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
+| Session lifetime | 30 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
 | Lock handling | Native screen-lock, session-inactive, and sleep notifications plus console-state checks; monitoring failure closes access |
 | Client IPC | Copy/login/catalog/select/status/stop only; mode-0600 Unix socket and random per-session token in a mode-0700 directory; same OS user required |
 | Credential delivery | Account metadata may return for Alfred results; secrets are copied inside the broker and never returned over the client socket |
@@ -24,6 +24,12 @@ before clipboard delivery, and clears operation scope afterward. A lookup that
 needs a more specific username can retain pairing. Cancelled pairing, protocol
 failure, or a disconnected browser discards that browser. Apple can invalidate
 pairing independently; the next copy must pair again.
+
+The extension waits for Apple's initial native `CmdHello` response before
+starting SRP pairing, because that response resets the native SecretSession and
+can otherwise erase an in-flight challenge. Native readiness is reset for every
+new native port. A stalled challenge fails after 12 seconds rather than starting
+a concurrent SRP exchange; PIN verification is never bypassed.
 
 The default Alfred search queries password metadata first (`cmd 4` for login
 names), which does not trigger macOS Touch ID, and returns that metadata—not

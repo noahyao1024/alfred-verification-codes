@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 : "${GH_USER:?Set GH_USER to your GitHub username}"
 : "${AUTHOR:?Set AUTHOR to your name}"
 REPO="${REPO:-alfred-verification-codes}"
-VERSION="${VERSION:-0.8.1}"
+VERSION="${VERSION:-0.8.4}"
 NAME="Passwords Quick Copy"
 DESCRIPTION="Alfred workflow to copy Apple Passwords passwords and verification codes"
 
@@ -38,7 +38,7 @@ Use pass setup to prepare the pinned official extension. No apwcli install is ne
 Use pass with a website or alias, select the account, and copy the password first.
 The native window can display the value for manual typing and copy a fresh OTP next.
 Save aliases from the window; pass alias lists and manages them.
-Pairing is reused until 5 minutes idle, screen lock, pwlock, or 30 minutes total.
+Pairing is reused until 30 minutes idle, screen lock, pwlock, or 30 minutes total.
 Browser control uses anonymous pipes with no TCP debugging listener.
 
 The existing otp and otpadd local-seed commands remain available.

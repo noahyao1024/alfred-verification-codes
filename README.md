@@ -15,10 +15,10 @@ on this development Mac through Command Line Tools).
 
 The first `pass` operation asks for Apple pairing. Enter the PIN shown
 by macOS into the local dialog; subsequent password and OTP copies reuse that
-session while it remains valid. By default, 5 minutes without a copy closes it.
-Screen lock, sleep/user switching, `pwlock`, or a 30-minute maximum lifetime also
-close the session. Apple can invalidate its pairing earlier, in which case the
-next operation pairs again. This replaces 0.6's pairing on every copy.
+session while it remains valid. By default, it stays warm for the 30-minute
+maximum lifetime. Screen lock, sleep/user switching, or `pwlock` closes it
+earlier. Apple can invalidate its pairing independently, in which case the next
+operation pairs again. This replaces 0.6's pairing on every copy.
 
 This requires Alfred Powerpack and a supported Chromium browser (Chrome, Brave,
 Edge, or Chromium) and Apple's browser helper. Setup accepts only the pinned
@@ -34,7 +34,8 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
-Use **one entry point: `pass`**. Start with `pass github.com`; matching account
+Use **one entry point: `pass`**. Start with `pass github`; it transparently queries
+`github.com`, and matching account
 metadata appears directly in Alfred and remains searchable in its existing input.
 Select an account and the password is copied first. Its value is
 shown in a movable floating window for manual typing. When ready, click **Copy
@@ -44,19 +45,19 @@ verification-code-only accounts** to load those separately; when no password
 exists, the workflow falls back to them automatically. A broader-domain or
 multiple-code match asks you to select the code.
 
-Short names also show query actions: `pass github` offers the visible completion
-`github.com` plus an original-host option for single-label/intranet names. Matching
-aliases keep priority; domains already present in aliases can also be suggested.
-Other suffixes such as `.org` and `.io` can be typed directly. This is explicit
-site completion, not a new whole-vault keyword search.
+There is no longer a separate short-name/domain/URL menu: bare words, full
+domains, and http/https URLs use the same keyword path. A bare word is resolved
+to `.com`; type another suffix explicitly when needed. Exact aliases keep
+priority. Apple's API remains website-scoped, so this does not enumerate the
+whole vault or search arbitrary titles across unrelated sites.
 
 | Alfred input | Result |
 | --- | --- |
-| `pass` | Show saved aliases and actions; Enter on Find Account asks for a website |
-| `pass github.com` | Show the site's password accounts in Alfred; type more to filter, then select and copy |
-| `pass codes github.com` | Show verification-code accounts in Alfred |
-| `pass github` | Choose a visible domain completion or query the original host |
-| `pass github.com me@example.com` | Narrow the account list to this username |
+| `pass` | Show saved aliases and workflow actions |
+| `pass github` | Query `github.com` directly and show its password accounts in Alfred |
+| `pass github.com` or `pass https://github.com` | Use the same keyword path without a separate URL mode |
+| `pass codes github` | Show verification-code accounts in Alfred |
+| `pass github me@example.com` | Filter the returned account list by username/title/site text |
 | `pass gh-work` or `pass @gh-work` | Use the account bound to this alias |
 | `pass alias` | List aliases; Command-Return renames, Option-Return deletes the alias |
 | `pass alias add gh-work github.com [username]` | Select an account and save an alias without copying a secret |
@@ -68,11 +69,10 @@ site completion, not a new whole-vault keyword search.
 | `otp` / `otpadd` | Use the existing, separate local seed store |
 
 The legacy `pcode`, `pwsetup`, and `pwlock` shortcuts remain compatible, but are
-not needed for the new flow. A username is literal text (spaces are allowed);
-do not add shell quotes. A full
-http/https URL may replace the domain; only its hostname is used. Apple's helper matches
-by registrable domain, so subdomains can return the same set of accounts. The
-picker shows title, username, and returned sites rather than guessing which
+not needed for the new flow. Filter text is literal; do not add shell quotes.
+A full http/https URL is normalized to its hostname. Apple's helper matches by
+registrable domain, so subdomains can return the same set of accounts. Alfred
+shows title, username, and returned sites rather than guessing which
 record was intended. Records with identical visible identifiers are refused;
 rename/distinguish them in Passwords first.
 
@@ -102,7 +102,7 @@ The clipboard cleanup helper holds only a pasteboard change counter, never the s
 a subsequent copy, even of identical text, is preserved.
 
 Set `SESSION_IDLE_SECONDS` in Workflow Configuration to change the idle timeout
-(30–1800 seconds, default 300). Keep-alive and status checks do not extend it.
+(30–1800 seconds, default 1800). Keep-alive and status checks do not extend it.
 Copies and active interactive flows refresh the idle timer; the 30-minute lifetime cap still applies. A typo
 or ambiguous account can be corrected within the same pairing session.
 
@@ -193,13 +193,18 @@ count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
 
-Version 0.8.3 keeps Alfred's input visible while account metadata loads and
+Version 0.8.4 keeps Alfred's input visible while account metadata loads and
 renders the results directly in Alfred. The common path now requests only Apple's
 metadata-only password listing (`cmd 4`, ghost search); it defers OTP metadata
 (`cmd 16`) until requested, eliminating one serial helper call before password
 results. Password aliases and selected Alfred results also skip metadata scans
-and resolve their bound identity during the one selected value read. A 30-second
-in-session metadata cache makes repeated filtering immediate.
+and resolve their bound identity during the one selected value read. Metadata
+remains cached for the bounded session, making repeated filtering immediate.
+The extension now waits for Apple's native `CmdHello` reply before starting SRP
+pairing, removing the race that caused the observed 20-second first-challenge
+timeout; a challenge that still stalls is capped at 12 seconds and is not mixed
+with a second SRP exchange. Initial pairing still requires Apple's system
+handshake and the user's PIN, so it cannot be equivalent to an already warm session.
 
 The password value (`cmd 5`) is read only after selecting an account, and is
 cached in broker memory for the bounded session so repeated copies or switching

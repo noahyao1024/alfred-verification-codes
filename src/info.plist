@@ -388,7 +388,7 @@
 				<key>scriptfile</key>
 				<string></string>
 				<key>subtext</key>
-				<string>输入网站或别名；账号直接显示在 Alfred，回车复制</string>
+				<string>输入关键词或别名；账号直接显示在 Alfred，回车复制</string>
 				<key>title</key>
 				<string>密码、验证码与别名</string>
 				<key>type</key>
@@ -569,9 +569,9 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
 
-* `pass github` shows a visible `github.com` completion and an original-host option; alias matches keep priority.
-* `pass github.com [search text]`: show matching password accounts directly in Alfred, then select and copy.
-* `pass codes github.com`: show verification-code-only accounts on demand.
+* `pass github [search text]`: use one keyword path, query `github.com` automatically, and show matching password accounts directly in Alfred.
+* Full domains and URLs use the same input path; exact aliases keep priority.
+* `pass codes github`: show verification-code-only accounts on demand.
 * The copied value appears in a temporary native window for manual typing. Click Copy Verification Code when ready; its value is read only then. Initial discovery uses metadata, not OTP values.
 * Use Set Alias in the window, then `pass gh-work` to reuse that exact account.
 * `pass alias`: list aliases; Command-Return renames, Option-Return removes an alias.
@@ -583,7 +583,7 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 Account metadata is returned for Alfred's result list. Passwords and codes are never returned to Alfred's debugger or stored in Notification Center. By request, the copied value is displayed in a temporary local window (disable Show copied value if desired); screen viewers can see it.
 Aliases store account identifiers only, never a password or OTP seed.
 Clipboard privacy markers request exclusion from history.
-The first copy starts a short-lived session. Pairing is reused until 5 minutes of inactivity by default, screen lock, sleep/session switch, manual pwlock, or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
+The first account search starts a bounded session. Pairing is reused until 30 minutes of inactivity by default, screen lock, sleep/session switch, manual pwlock, or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
 The idle timeout is configurable. A later copy starts a fresh session.
 
 The broker uses a mode-0600 Unix socket and a per-session token in a mode-0700 directory. Passwords never travel back to Alfred over that socket. Browser control still uses anonymous CDP pipes, with no TCP debugging port. These controls do not authenticate Alfred as a unique application or protect against a compromised macOS user account.
@@ -719,7 +719,7 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 				<true/>
 			</dict>
 			<key>description</key>
-			<string>统一入口：pass 网站域名、pass 别名、pass alias、pass lock。</string>
+			<string>统一入口：pass 关键词、pass 别名、pass alias、pass lock。</string>
 			<key>label</key>
 			<string>Main keyword</string>
 			<key>type</key>
@@ -834,16 +834,16 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 			<key>config</key>
 			<dict>
 				<key>default</key>
-				<string>300</string>
+				<string>1800</string>
 				<key>placeholder</key>
-				<string>300</string>
+				<string>1800</string>
 				<key>required</key>
 				<true/>
 				<key>trim</key>
 				<true/>
 			</dict>
 			<key>description</key>
-			<string>空闲多少秒后关闭会话，范围 30–1800。锁屏时也会关闭；单次会话最长 30 分钟。</string>
+			<string>空闲多少秒后关闭会话，范围 30–1800，默认 1800。锁屏时也会关闭；单次会话最长 30 分钟。</string>
 			<key>label</key>
 			<string>Session idle timeout (seconds)</string>
 			<key>type</key>
@@ -922,7 +922,7 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 		<key>DISPLAY_SECONDS</key>
 		<string>45</string>
 		<key>SESSION_IDLE_SECONDS</key>
-		<string>300</string>
+		<string>1800</string>
 		<key>SHOW_SECRETS</key>
 		<string>1</string>
 		<key>appleotpkeyword</key>
@@ -941,7 +941,7 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 	<key>variablesdontexport</key>
 	<array/>
 	<key>version</key>
-	<string>0.8.3</string>
+	<string>0.8.4</string>
 	<key>webaddress</key>
 	<string>https://github.com/noahyao1024/alfred-verification-codes</string>
 </dict>

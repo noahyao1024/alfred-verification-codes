@@ -51,12 +51,16 @@ class PasswordSession:
                 time.sleep(0.1)
             if not self.worker:
                 raise BridgeError("密码扩展没有启动。")
+            deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
-                if self.evaluate("typeof globalThis.__passwordsBridge === 'object'"):
+                state = self.evaluate(
+                    "typeof globalThis.__passwordsBridge === 'object' ? "
+                    "globalThis.__passwordsBridge.state() : null")
+                if isinstance(state, dict) and state.get("nativeReady"):
                     self.set_scope(self.domain, self.username, self.mode)
                     return self
                 time.sleep(0.1)
-            raise BridgeError("密码扩展桥接初始化超时。")
+            raise BridgeError("Apple 密码 helper 初始化超时。")
         except BaseException:
             self.__exit__(None, None, None)
             raise
@@ -85,20 +89,34 @@ class PasswordSession:
     def wait_state(self, desired, timeout=20):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            state = self.state().get("state")
-            if state == desired:
+            snapshot = self.state()
+            state = snapshot.get("state")
+            if state == desired and snapshot.get("nativeReady"):
                 return
             if desired == "SessionKeySet" and state == "NotInSession":
                 raise BridgeError("Apple 配对失败或已取消，请重新运行复制命令。")
             time.sleep(0.2)
-        raise BridgeError("Apple 配对等待超时。")
+        raise PairingTimeout("Apple 配对握手等待超时。")
+
+    def wait_native_ready(self, timeout=15):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            state = self.state()
+            if state.get("nativeReady"):
+                return state
+            time.sleep(0.1)
+        raise PairingTimeout("Apple 密码 helper 连接等待超时。")
 
     def pair(self):
+        self.wait_native_ready()
         if self.request({"cmd": 2}).get("status") != 0:
             raise BridgeError("无法请求 Apple 配对。")
-        self.wait_state("MSG1Set")
+        self.wait_state("MSG1Set", timeout=12)
         pin = self.prompt_pin()
         try:
+            state = self.wait_native_ready(timeout=12)
+            if state.get("state") != "MSG1Set":
+                raise BridgeError("Apple 配对连接已重置，请重新运行复制命令。")
             if self.request({"cmd": 2, "pin": pin}).get("status") != 0:
                 raise BridgeError("Apple 配对失败。")
             self.wait_state("SessionKeySet")
@@ -162,6 +180,10 @@ return text returned of answer'''
 
 class CredentialLookupError(BridgeError):
     """A valid paired session may be retained after an empty/ambiguous lookup."""
+
+
+class PairingTimeout(BridgeError):
+    """A native SRP phase did not advance within its bounded wait."""
 
 
 def decode_entries(response):
