@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.8.5")
+VERSION = os.environ.get("VERSION", "0.8.6")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -154,13 +154,13 @@ userconfig = [
         "label": "Main keyword", "type": "textfield", "variable": "passwordkeyword",
     },
     {
-        "config": {"default": True, "required": False, "text": "复制后在本机弹窗显示明文，方便手打"},
-        "description": "窗口中显示本次密码或验证码；屏幕共享可能让观看者看到。关闭此项仍可复制和切换验证码。",
-        "label": "Show copied value", "type": "checkbox", "variable": "SHOW_SECRETS",
+        "config": {"default": True, "required": False, "text": "复制密码后显示明文浮窗，方便手打"},
+        "description": "只影响密码；验证码始终直接复制，不弹窗。关闭此项时密码也直接复制。",
+        "label": "Show password after copy", "type": "checkbox", "variable": "SHOW_SECRETS",
     },
     {
         "config": {"default": "45", "placeholder": "45", "required": True, "trim": True},
-        "description": "密码/验证码窗口多少秒后自动关闭，范围 10–180。锁屏时也会关闭。",
+        "description": "密码浮窗多少秒后自动关闭，范围 10–180。锁屏时也会关闭。",
         "label": "Display timeout (seconds)", "type": "textfield", "variable": "DISPLAY_SECONDS",
     },
     {
@@ -218,10 +218,13 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 * Opening `pass` prewarms the isolated browser without pairing, querying accounts, or reading credentials.
 * `pass github [search text]`: use one keyword path, query `github.com` automatically, and show matching password accounts directly in Alfred.
 * Full domains and URLs use the same input path; exact aliases keep priority.
-* `pass codes github`: show verification-code-only accounts on demand.
-* The copied value appears in a temporary native window for manual typing. Click \
-Copy Verification Code when ready; its value is read only then. Initial discovery uses metadata, not OTP values.
-* Use Set Alias in the window (the input receives keyboard focus), then `pass gh-work` to reuse that exact account.
+* `pass codes github`: show verification-code accounts on demand; Return copies a code directly.
+* Return on a password account copies it and opens a temporary window for manual typing. \
+Command-Return copies its matching code directly. The Copy Verification Code button in the password window \
+also copies the code and closes the window. Codes never open a value window.
+* Option-Return on an account or Set Alias in the password window opens `pass alias save ` in Alfred's own input field. \
+Type a name, check the account preview, and press Return; then use `pass gh-work` to reuse that account.
+* Normal alias results use Command-Return for a code and Option-Return to rename.
 * `pass alias`: list aliases; Command-Return renames, Option-Return removes an alias.
 * `pass alias add gh-work github.com [username]`: bind an alias without copying a secret.
 * `pass setup` prepares the extension; `pass lock` closes the active session.
@@ -230,9 +233,9 @@ Copy Verification Code when ready; its value is read only then. Initial discover
 
 Account metadata is returned for Alfred's result list. Passwords and codes are \
 never returned to Alfred's debugger or stored in \
-Notification Center. By request, the copied value is displayed in a temporary \
-local window (disable Show copied value if desired); screen viewers can see it.
-Aliases store account identifiers only, never a password or OTP seed.
+Notification Center. By request, the copied password is displayed in a temporary \
+local window (disable Show password after copy if desired); screen viewers can see it.
+Aliases and five-minute editor drafts store account identifiers only, never a password or OTP seed.
 Clipboard privacy markers request exclusion from history.
 The empty `pass` menu may start the unpaired browser; the first account search \
 starts pairing. Pairing is reused until 30 minutes \

@@ -105,8 +105,8 @@ function makeAlert(payload) {
         field.stringValue = $(payload.initial || '');
         field.placeholderString = $(payload.placeholder || '');
         alert.accessoryView = field;
-        // NSAlert otherwise leaves the default button as first responder. The
-        // alias dialog looks active, but keystrokes never reach its text field.
+        // Best-effort focus for legacy text prompts. Alias creation and rename
+        // now use Alfred's own input field instead of this independent window.
         alert.window.initialFirstResponder = field;
     }
     return {alert, buttons, field};

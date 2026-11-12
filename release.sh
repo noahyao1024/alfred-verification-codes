@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 : "${GH_USER:?Set GH_USER to your GitHub username}"
 : "${AUTHOR:?Set AUTHOR to your name}"
 REPO="${REPO:-alfred-verification-codes}"
-VERSION="${VERSION:-0.8.5}"
+VERSION="${VERSION:-0.8.6}"
 NAME="Passwords Quick Copy"
 DESCRIPTION="Alfred workflow to copy Apple Passwords passwords and verification codes"
 
@@ -37,8 +37,9 @@ gh release create "v$VERSION" "dist/$NAME.alfredworkflow" \
 Use pass setup to prepare the pinned official extension. No apwcli install is needed.
 Opening pass prewarms the isolated browser without pairing or reading credentials.
 Use pass with a website or alias, select the account, and copy the password first.
-The native window can display the value for manual typing and copy a fresh OTP next.
-Save aliases from the focused text field; pass alias lists and manages them.
+The native window can display the password for manual typing. OTP copies never open a value window.
+Command-Return copies the matching OTP directly; Option-Return edits an alias in Alfred's input field.
+The Set Alias button also opens Alfred; pass alias lists and manages saved aliases.
 Pairing is reused until 30 minutes idle, screen lock, pwlock, or 30 minutes total.
 Browser control uses anonymous pipes with no TCP debugging listener.
 

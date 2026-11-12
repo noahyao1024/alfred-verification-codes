@@ -1,15 +1,15 @@
-# Security scope of version 0.8.5
+# Security scope of version 0.8.6
 
 This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.8.5 behavior |
+| Boundary | Version 0.8.6 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
 | Session lifetime | 30 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
 | Lock handling | Native screen-lock, session-inactive, and sleep notifications plus console-state checks; monitoring failure closes access |
-| Client IPC | Warm/copy/login/catalog/select/status/stop only; mode-0600 Unix socket and random per-session token in a mode-0700 directory; same OS user required |
+| Client IPC | Warm/copy/login/catalog/select/select_otp/status/stop only; mode-0600 Unix socket and random per-session token in a mode-0700 directory; same OS user required |
 | Credential delivery | Account metadata may return for Alfred results; secrets are copied inside the broker and never returned over the client socket |
 | Operation scope | Validated type/domain/username per request; scope cleared between requests; no raw native command or evaluation endpoint |
 | Manual control | `pwlock` cancels an in-flight operation and waits for shutdown |
@@ -17,7 +17,7 @@ It is not an independently audited password manager or a cryptographic rewrite.
 | Extension | Exact pinned archive hash; explicit setup; no silent runtime replacement |
 | Clipboard | Concealed/transient markers and generation-based timed clearing; cleanup retains no credential |
 | Account UI | Searchable Alfred results show username/title/sites; aliases and selected results bind exact metadata, not a result index or password hash |
-| Manual-entry display | Explicitly requested plaintext appears in a transient native floating window; no Notification Center record; can be disabled |
+| Manual-entry display | Passwords may appear in a transient native floating window; no Notification Center record; can be disabled; OTP copies never open a value window |
 
 The broker serializes copies, rechecks lock/lifetime during browser waits and
 before clipboard delivery, and clears operation scope afterward. A lookup that
@@ -45,10 +45,10 @@ queried automatically only when no password account exists. Only the selected
 account's password is read via `cmd 5` after selection (or immediately for a
 bound password alias), and once read it is cached in broker memory for the
 duration of the active session (cleared on idle expiry, screen lock, sleep,
-session invalidation, or `pwlock`) so repeated copies of the same account or
-switching back from OTP do not re-trigger Touch ID. A Refresh Password action in
+session invalidation, or `pwlock`) so repeated copies of the same account avoid
+another password read. A Refresh Password action in
 the floating window forces a fresh `cmd 5` read when a password was rotated.
-Binding an alias (`pass alias add`) or cancelling the picker performs zero
+Binding an alias (Option-Return or `pass alias add`) or cancelling the picker performs zero
 secret reads. OTP values remain time-dependent and are read on demand after
 confirmation, once per copy/refresh. No biometric check is disabled.
 OTP matching never falls back to another username; broader-domain or multiple
@@ -63,14 +63,24 @@ Aliases store only whitelisted account metadata in a mode-0600 JSON file. They
 contain no password, code, seed, or secret-derived identifier. Renamed or duplicated
 bindings fail instead of guessing a different account; overwrite requires
 confirmation. Alias names and account metadata intentionally appear in Alfred.
+The editor uses Alfred's input field and a private, atomically written
+`alias-draft.json` containing only a whitelisted binding, a random draft ID, and
+a timestamp. It expires after five minutes and is removed after saving or manual
+lock. Expired drafts are rejected and removed on access; no background timer
+guarantees immediate file removal at expiry. The ID prevents a previously rendered
+save action from binding a later account. Replacing a different binding requires
+explicit confirmation via a result labelled as an update with the target preview.
+The password window's alias action returns only binding metadata to Alfred.
 
-On the user's explicit request, copied secrets may be shown in a large native
+On the user's explicit request, copied passwords may be shown in a large native
 window for manual typing. The value travels to that owned UI child over stdin,
 not argv, environment, temporary files, or the Alfred IPC response. The child
-returns only an action/index/alias text. Plaintext is not sent to Notification
+returns only an action/index. Plaintext is not sent to Notification
 Center. Display timeout, screen lock, and cancellation close the window; screen
-observers or recording software can still see it. `SHOW_SECRETS` disables this
-display, while retaining the copy/OTP controls. The interaction may keep a session
+observers or recording software can still see it. `SHOW_SECRETS` disables the
+password window entirely. Codes finish immediately after clipboard delivery,
+regardless of this setting. Command-Return on a password result reads only its
+matching OTP, without retrieving the password. The interaction may keep a session
 busy, but remains bounded by the broker's absolute lifetime cap.
 
 The Unix token is a local capability, not proof of Alfred's application identity.

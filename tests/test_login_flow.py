@@ -130,15 +130,19 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(self.instances[0].otp_queries, 1)
 
     def test_otp_refresh_fetches_another_current_value(self):
-        self.ui = UI(actions=['otp', 'refresh', 'done'])
+        self.ui = UI(actions=['otp'])
         self.manager.login(login_request())
+        identity = account_list(self.factory.codes, 'otp', 'example.com')[0].identity
+        self.ui = UI()
+        self.manager.select(select_request(identity))
         self.assertEqual(self.copies, ['SECRET-ALICE', '000001', '000002'])
+        self.assertEqual(self.ui.panels, [])
 
     def test_otp_only_account_is_listed_and_copied(self):
         self.factory.passwords = []
         self.manager.login(login_request())
         self.assertEqual(self.copies, ['000001'])
-        self.assertEqual(self.ui.panels[0][0], 'otp')
+        self.assertEqual(self.ui.panels, [])
 
     def test_other_user_otp_never_overwrites_password(self):
         self.ui = UI(actions=['otp', 'done'], choices=[1])
@@ -226,8 +230,11 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(self.instances[0].password_queries, 2)
 
     def test_returning_from_otp_to_password_uses_cached_password_without_reprompt(self):
-        self.ui = UI(actions=['otp', 'password', 'done'])
+        self.ui = UI(actions=['otp'])
         self.manager.login(login_request())
+        self.ui = UI()
+        identity = account_list(PASSWORDS, 'password', 'example.com')[0].identity
+        self.manager.select(select_request(identity))
         self.assertEqual(self.copies, ['SECRET-ALICE', '000001', 'SECRET-ALICE'])
         self.assertEqual(self.instances[0].password_queries, 1)
         self.assertEqual(self.instances[0].otp_queries, 1)
@@ -246,9 +253,31 @@ class FlowTests(unittest.TestCase):
 
     def test_save_alias_from_password_window(self):
         self.ui = UI(actions=['alias', 'done'], texts=['my-github'])
-        self.manager.login(login_request())
-        self.assertEqual(self.store.get('my-github')['identity']['kind'], 'password')
+        result = self.manager.login(login_request())
+        self.assertEqual(result['alias_target']['identity']['kind'], 'password')
+        self.assertNotIn('SECRET-', json.dumps(result))
+        self.assertEqual(self.ui.texts, ['my-github'])  # the broken native text dialog is never called
+        self.assertEqual(self.store.all(), [])
         self.assertEqual(self.copies, ['SECRET-ALICE'])
+
+    def test_password_popup_can_be_disabled_without_affecting_copy(self):
+        self.manager.login(login_request(display=False))
+        self.assertEqual(self.copies, ['SECRET-ALICE'])
+        self.assertEqual(self.ui.panels, [])
+
+    def test_password_to_otp_closes_without_a_code_popup(self):
+        self.ui = UI(actions=['otp'])
+        self.manager.login(login_request())
+        self.assertEqual([panel[0] for panel in self.ui.panels], ['password'])
+        self.assertEqual(self.copies, ['SECRET-ALICE', '000001'])
+
+    def test_otp_shortcut_does_not_read_or_show_password(self):
+        identity = account_list(PASSWORDS, 'password', 'example.com')[0].identity
+        result = self.manager.select(select_request(identity, op='select_otp'))
+        self.assertTrue(result['ok'])
+        self.assertEqual(self.instances[0].password_queries, 0)
+        self.assertEqual(self.copies, ['000001'])
+        self.assertEqual(self.ui.panels, [])
 
     def test_alias_collision_requires_confirmation(self):
         self.manager.login(login_request(save_alias='same'))
@@ -378,7 +407,8 @@ class AliasAndMenuTests(unittest.TestCase):
 
     def test_empty_menu_explains_unified_keyword_input(self):
         result = menu('', self.store)
-        self.assertIn('直接输入关键词', result['items'][0]['title'])
+        self.assertIn('输入网站或别名', result['items'][0]['title'])
+        self.assertNotIn('元数据', json.dumps(result, ensure_ascii=False))
 
     def test_catalog_menu_filters_in_alfred_and_carries_metadata_only(self):
         accounts = [{'identity': account_list(PASSWORDS, 'password', 'example.com',
@@ -389,6 +419,11 @@ class AliasAndMenuTests(unittest.TestCase):
         self.assertEqual(action['action'], 'select')
         self.assertEqual(action['identity']['username'], 'alice')
         self.assertNotIn('SECRET-', json.dumps(result))
+        self.assertEqual(validate_action(json.loads(result['items'][0]['mods']['cmd']['arg']))['action'], 'select_otp')
+        self.assertEqual(validate_action(json.loads(result['items'][0]['mods']['alt']['arg']))['action'], 'begin_alias')
+        self.assertIn('复制密码', result['items'][0]['title'])
+        self.assertEqual(result['items'][-1]['title'], '查找此网站的验证码')
+        self.assertNotIn('元数据', json.dumps(result, ensure_ascii=False))
         self.assertEqual(json.loads(result['items'][-1]['arg']),
                          {'action': 'search', 'query': 'codes example.com'})
         fallback = catalog_menu('example.com', accounts, mode='otp', fallback=True)
@@ -480,8 +515,14 @@ class LocalUITransportTests(unittest.TestCase):
         ui = LocalUI()
         with patch.object(ui, 'run', return_value={'action': 'done'}) as dialog:
             ui.copied(account, account.value, True, False, 45)
-        self.assertEqual(dialog.call_args.args[0]['value'], '')
-        self.assertNotIn('SECRET-', json.dumps(dialog.call_args.args[0]))
+        dialog.assert_not_called()
+
+    def test_otp_never_opens_a_value_window(self):
+        account = account_list([{'username': 'alice', 'domain': 'example.com', 'code': '123456'}], 'otp', 'example.com')[0]
+        ui = LocalUI()
+        with patch.object(ui, 'run') as dialog:
+            self.assertEqual(ui.copied(account, account.value, False, True, 45), 'done')
+        dialog.assert_not_called()
 
     def test_plaintext_uses_stdin_not_process_arguments(self):
         original = subprocess.Popen

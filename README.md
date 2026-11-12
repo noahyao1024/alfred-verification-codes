@@ -38,13 +38,14 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 Use **one entry point: `pass`**. Start with `pass github`; it transparently queries
 `github.com`, and matching account
 metadata appears directly in Alfred and remains searchable in its existing input.
-Select an account and the password is copied first. Its value is
-shown in a movable floating window for manual typing. When ready, click **Copy
-Verification Code**; the matching code is fetched again and copied then, without
-immediately overwriting the password after the first step. Choose **Show
-verification-code-only accounts** to load those separately; when no password
-exists, the workflow falls back to them automatically. A broader-domain or
-multiple-code match asks you to select the code.
+Press Return on **复制密码** to copy the password and show it in a movable
+floating window for manual typing. Press Command-Return on that account to copy
+its current verification code directly, or click **复制验证码** in the password
+window. Copying a code closes the window and finishes immediately; it never
+opens a code display. Choose **查找此网站的验证码** to browse the site's code
+accounts separately; when no password exists, the workflow falls back to them
+automatically. A broader-domain or multiple-code match still asks you to select
+the intended code.
 
 There is no longer a separate short-name/domain/URL menu: bare words, full
 domains, and http/https URLs use the same keyword path. A bare word is resolved
@@ -77,22 +78,32 @@ shows title, username, and returned sites rather than guessing which
 record was intended. Records with identical visible identifiers are refused;
 rename/distinguish them in Passwords first.
 
-Use **Set Alias** in the copied-value window to save a selected account. Aliases
+To save an alias, press Option-Return on an account or click **设置别名** in the
+password window. Alfred opens `pass alias save ` in its own input field. Type a
+name, check the account preview, and press Return. No separate native text dialog
+is used. Normal alias results use Option-Return to rename and Command-Return to
+copy the matching code; `pass alias` retains its management shortcuts above.
+
+Aliases
 contain only its query domain, username, title, sites, and credential kind, never
 a password or OTP seed. Password changes and result reordering do not change the
 binding. A renamed/changed/duplicated account cannot silently redirect an alias:
 query the domain again and update the binding. Overwriting a different binding
-requires confirmation. `aliases.json` is private and updated atomically.
+shows **更新已有别名** with the new target and requires Return to confirm.
+`aliases.json` is private and updated atomically. The temporary editor draft
+contains account metadata only, expires after five minutes, and is discarded
+after saving or `pass lock`. An expired edit must be started from the account again.
 
 `pass` and `pcode` connect to a short-lived broker. It owns the private
 browser profile and anonymous CDP pipes; no TCP debugging listener is opened.
 The broker's Unix socket requires the same OS user and a per-session token in a
 private directory. It returns account metadata for the Alfred result list, but
 copies secrets within the broker and never returns passwords or codes to Alfred.
-On explicit user request, the copied value is now
+On explicit user request, the copied password is
 displayed in a temporary native window for manual typing; it is not put into
-Notification Center history or debugging output. Turn off **Show copied value**
-(`SHOW_SECRETS`) to suppress plaintext while retaining the copy controls. Set
+Notification Center history or debugging output. Turn off **Show password after copy**
+(`SHOW_SECRETS`) to copy passwords directly without a window. Codes always copy
+directly, regardless of that setting. Set
 `DISPLAY_SECONDS` (10–180, default 45) to change the window timeout. Screen viewers
 can see the window. It closes when the operation is cancelled/locked or times out.
 Credentials
@@ -194,8 +205,11 @@ count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
 
-Version 0.8.5 gives the alias text field explicit keyboard focus and starts a
-credential-free browser prewarm when the empty `pass` menu opens. The prewarm
+Version 0.8.6 moves alias entry into Alfred's own search field, so aliases no
+longer depend on a native alert receiving keyboard focus. It also adds direct
+code copying with Command-Return and removes the code display after copying.
+The credential-free browser prewarm from 0.8.5 still runs when the empty `pass`
+menu opens. The prewarm
 does not pair, query metadata, read a value, or extend an existing session's idle
 deadline; the first explicit website query reuses it.
 
@@ -213,8 +227,8 @@ with a second SRP exchange. Initial pairing still requires Apple's system
 handshake and the user's PIN, so it cannot be equivalent to an already warm session.
 
 The password value (`cmd 5`) is read only after selecting an account, and is
-cached in broker memory for the bounded session so repeated copies or switching
-back from OTP do not re-prompt Touch ID (use Refresh Password in the window to
+cached in broker memory for the bounded session so repeated copies avoid another
+password read (use Refresh Password in the window to
 force a re-read; `pwlock` or lock/idle expiry clears the cache). OTP values are
 read only after the user requests them, once per copy/refresh. `pass stats`
 summarizes recent average and P95 timings for broker/browser startup, pairing,

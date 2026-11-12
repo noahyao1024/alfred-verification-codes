@@ -96,6 +96,8 @@ class LocalUI:
         self.run({'kind': 'message', 'title': title, 'message': message})
 
     def copied(self, account, value, has_otp, show, timeout, can_password=False):
+        if account.kind == 'otp' or not show:
+            return 'done'
         buttons = [{'id': 'done', 'label': '完成'}]
         if account.kind == 'password' and has_otp:
             buttons.append({'id': 'otp', 'label': '复制验证码'})

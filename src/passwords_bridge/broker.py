@@ -108,7 +108,7 @@ def validate_warm(request):
 
 def validate_select(request):
     keys = {'op', 'domain', 'identity', 'clear_after', 'idle_seconds', 'display', 'display_seconds'}
-    if set(request) != keys or request['op'] != 'select':
+    if set(request) != keys or request['op'] not in ('select', 'select_otp'):
         raise BridgeError('账号选择请求格式无效。')
     validate_copy({'op': 'copy', 'mode': 'password', 'domain': request['domain'],
                    'username': '', 'clear_after': request['clear_after'],
@@ -401,7 +401,8 @@ class SessionManager:
             flow = LoginFlow(self, store, flow_request)
             if self.ui_factory:
                 flow.ui = self.ui_factory(self, flow)
-            return flow.run_selected(request['identity'])
+            return (flow.copy_selected_otp(request['identity']) if request['op'] == 'select_otp'
+                    else flow.run_selected(request['identity']))
         except CredentialLookupError:
             raise
         except BaseException:
@@ -510,7 +511,7 @@ def metadata_write(root, token):
                        'interactive': True, 'lazy_otp': True, 'lazy_passwords': True,
                        'credential_cache': True, 'alfred_catalog': True,
                        'performance_v1': True, 'native_ready_v1': True,
-                       'prewarm_v1': True}, stream)
+                       'prewarm_v1': True, 'quick_actions_v1': True}, stream)
         os.replace(temporary, root / 'session.json')
     finally:
         Path(temporary).unlink(missing_ok=True)
@@ -538,7 +539,7 @@ def perform(manager, request):
     started = manager.perf_clock()
     try:
         operations = {'warm': manager.warm, 'copy': manager.copy, 'login': manager.login,
-                      'catalog': manager.catalog, 'select': manager.select}
+                      'catalog': manager.catalog, 'select': manager.select, 'select_otp': manager.select}
         operation = operations.get(request.get('op'))
         if operation is None:
             raise BridgeError('不支持的会话操作。')
@@ -614,9 +615,9 @@ def serve(root=None, monitor_factory=LockMonitor, session_factory=PasswordSessio
                     send_result(connection, {'ok': True, 'active': manager.session is not None,
                                              'busy': future is not None,
                                              'idle_remaining': max(0, int(manager.idle - (manager.clock() - manager.last_activity)))})
-                elif request.get('op') in ('warm', 'copy', 'login', 'catalog', 'select'):
+                elif request.get('op') in ('warm', 'copy', 'login', 'catalog', 'select', 'select_otp'):
                     validators = {'copy': validate_copy, 'login': validate_login,
-                                  'catalog': validate_catalog, 'select': validate_select,
+                                  'catalog': validate_catalog, 'select': validate_select, 'select_otp': validate_select,
                                   'warm': validate_warm}
                     request = validators[request['op']](request)
                     if future is not None:

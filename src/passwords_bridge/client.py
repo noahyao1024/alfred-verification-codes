@@ -52,7 +52,7 @@ def rpc(request, root=None, expected_token=None, return_token=False):
             raise Unavailable from None
         # Interactive account/popup steps can legitimately exceed a PIN-only wait.
         # The broker's 30-minute lifetime cap still bounds the entire interaction.
-        connection.settimeout(1860 if request.get('op') in ('login', 'catalog', 'select') else 180)
+        connection.settimeout(1860 if request.get('op') in ('login', 'catalog', 'select', 'select_otp') else 180)
         packet = dict(request, v=PROTOCOL, token=info['token'])
         connection.sendall(json.dumps(packet).encode() + b'\n')
         reply = b''
@@ -100,8 +100,8 @@ def request_catalog(domain, mode, idle_seconds):
     return dispatch(request)
 
 
-def request_selected(domain, identity, clear_after, idle_seconds, display, display_seconds):
-    request = validate_select({'op': 'select', 'domain': domain, 'identity': identity,
+def request_selected(domain, identity, clear_after, idle_seconds, display, display_seconds, otp=False):
+    request = validate_select({'op': 'select_otp' if otp else 'select', 'domain': domain, 'identity': identity,
                                'clear_after': clear_after, 'idle_seconds': idle_seconds,
                                'display': display, 'display_seconds': display_seconds})
     retire_incompatible_broker()
@@ -113,7 +113,8 @@ def retire_incompatible_broker():
     try:
         info = metadata(data_dir())
         if (not info.get('alfred_catalog') or not info.get('performance_v1') or
-                not info.get('native_ready_v1') or not info.get('prewarm_v1')):
+                not info.get('native_ready_v1') or not info.get('prewarm_v1') or
+                not info.get('quick_actions_v1')):
             result = lock_session()
             if not result['ok']:
                 raise BridgeError(result['message'])

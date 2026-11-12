@@ -83,6 +83,7 @@ class FrontendTests(unittest.TestCase):
 
     def test_manual_lock_does_not_start_or_read_a_session(self):
         with patch.object(app, 'lock_session', return_value={'ok': True, 'message': 'locked'}) as lock, \
+             patch.object(app, 'AliasEditor'), \
              patch.object(app, 'request_copy') as copy, contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(app.main(['lock']), 0)
             lock.assert_called_once()
@@ -139,6 +140,14 @@ class FrontendTests(unittest.TestCase):
                                      'SHOW_SECRETS': '1', 'DISPLAY_SECONDS': '45'}):
             self.assertEqual(app.interactive(action), (True, 'copied'))
         selected.assert_called_once_with('example.com', identity, 45, 300, True, 45)
+
+    def test_otp_shortcut_routes_without_password_display(self):
+        identity = {'kind': 'password', 'username': 'alice', 'title': 'Personal', 'sites': ['example.com']}
+        with patch.object(app, 'request_selected', return_value={'ok': True, 'message': 'copied'}) as selected, \
+             patch.dict(os.environ, {'CLEAR_CLIPBOARD_AFTER': '45', 'SESSION_IDLE_SECONDS': '300',
+                                     'SHOW_SECRETS': '1', 'DISPLAY_SECONDS': '45'}):
+            self.assertEqual(app.interactive({'action': 'select_otp', 'domain': 'example.com', 'identity': identity}), (True, 'copied'))
+        selected.assert_called_once_with('example.com', identity, 45, 300, False, 45, otp=True)
 
     def test_idle_configuration_rejects_unbounded_values(self):
         for value in ('0', '-1', '1801', 'forever'):

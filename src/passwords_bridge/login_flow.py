@@ -1,6 +1,6 @@
 """Account picker -> password -> optional fresh OTP, entirely inside the broker."""
 
-from .accounts import account_list, host, otp_matches, resolve_identity, resolve_otp_metadata
+from .accounts import Account, account_list, host, otp_matches, resolve_identity, resolve_otp_metadata
 from .aliases import AliasExists, alias_name
 from .browser import BridgeError
 from .local_ui import LocalUI
@@ -178,9 +178,21 @@ class LoginFlow:
         primary = resolve_otp_metadata(self.fetch('otp', identity['username']), identity)
         return self.present(primary, False)
 
+    def copy_selected_otp(self, identity):
+        """Copy a password row's matching OTP without reading/showing its password."""
+        if identity['kind'] == 'otp':
+            return self.run_selected(identity)
+        code = self.fresh_code(Account(identity, ''))
+        if code is None:
+            return {'ok': True, 'message': '已取消验证码选择。'}
+        self.copy(code)
+        return {'ok': True, 'message': '验证码已复制。'}
+
     def present(self, primary, has_otp):
         current = primary
         self.copy(current)
+        if current.kind == 'otp' or not self.request['display']:
+            return {'ok': True, 'message': '验证码已复制。' if current.kind == 'otp' else '密码已复制。'}
         while True:
             action = self.ui.copied(current, current.value, has_otp,
                                     self.request['display'], self.request['display_seconds'],
@@ -189,12 +201,10 @@ class LoginFlow:
                 break
             try:
                 if action == 'alias':
-                    try:
-                        self.save_alias(primary)
-                    except BridgeError as error:
-                        self.manager.guard()
-                        self.ui.message('别名未保存', str(error))
-                    continue
+                    # Editing happens in Alfred's key-capable search field, not
+                    # another osascript alert fighting for keyboard focus.
+                    return {'ok': True, 'message': '',
+                            'alias_target': {'domain': self.domain, 'identity': primary.identity}}
                 if action == 'password' and primary.kind == 'password':
                     primary = self.load_password(primary.identity)
                     current = primary
@@ -211,6 +221,8 @@ class LoginFlow:
                 else:
                     raise BridgeError('不支持的窗口操作。')
                 self.copy(current)
+                if current.kind == 'otp':
+                    return {'ok': True, 'message': '验证码已复制。'}
             except CredentialLookupError as error:
                 self.ui.message('未复制验证码', str(error))
             except AliasExists as error:

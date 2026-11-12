@@ -16,6 +16,7 @@ from passwords_bridge.browser import BridgeError
 from passwords_bridge.client import request_catalog, request_copy, request_login, request_selected, request_warm, lock_session
 from passwords_bridge.extension import data_dir, setup
 from passwords_bridge.aliases import AliasStore
+from passwords_bridge.alias_editor import AliasEditor
 from passwords_bridge.local_ui import LocalUI
 from passwords_bridge.menu import catalog_menu, menu, validate_action
 from passwords_bridge.performance import stats_menu
@@ -143,11 +144,26 @@ def open_alfred_search(query):
     script = '''on run argv
 tell application id "com.runningwithcrayons.Alfred" to search (item 1 of argv)
 end run'''
-    result = subprocess.run(['/usr/bin/osascript', '-e', script, keyword + ' ' + query],
-                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, timeout=10)
+    try:
+        result = subprocess.run(['/usr/bin/osascript', '-e', script, keyword + ' ' + query],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        raise BridgeError('无法重新打开 Alfred 搜索，请直接输入 ' + keyword + ' ' + query) from None
     if result.returncode:
         raise BridgeError('无法重新打开 Alfred 搜索，请直接输入 ' + keyword + ' ' + query)
+
+
+def begin_alias_editor(binding):
+    AliasEditor().begin(binding)
+    open_alfred_search('alias save ')
+    return True, ''
+
+
+def handle_result(result):
+    if result.get('ok') and 'alias_target' in result:
+        return begin_alias_editor(result['alias_target'])
+    return result['ok'], result['message']
 
 
 def interactive(action):
@@ -158,13 +174,23 @@ def interactive(action):
     if kind == 'search':
         open_alfred_search(action['query'])
         return True, ''
-    if kind == 'select':
+    if kind == 'begin_alias':
+        domain, remainder = parse_query(action['domain'])
+        if remainder: raise BridgeError('账号网站无效。')
+        return begin_alias_editor({'domain': domain, 'identity': action['identity']})
+    if kind == 'save_alias_draft':
+        AliasEditor().save(action['draft'], action['name'], action['replace'])
+        return True, '别名已保存：' + action['name']
+    if kind in ('select', 'select_otp'):
         domain, remainder = parse_query(action['domain'])
         if remainder:
             raise BridgeError('账号选择网站无效。')
         show, duration = display_settings()
-        result = request_selected(domain, action['identity'], clear_seconds(), idle_seconds(), show, duration)
-        return result['ok'], result['message']
+        if kind == 'select_otp':
+            result = request_selected(domain, action['identity'], clear_seconds(), idle_seconds(), False, duration, otp=True)
+        else:
+            result = request_selected(domain, action['identity'], clear_seconds(), idle_seconds(), show, duration)
+        return handle_result(result)
     ui = LocalUI()
     if kind == 'help':
         ui.message('Passwords Quick Copy', 'pass 关键词：账号直接显示在 Alfred；短词自动按 .com 查询。\npass 别名：使用已保存账号。\n复制窗口可设置别名。\npass alias：查看、重命名或删除别名。\npass lock：锁定会话。')
@@ -173,8 +199,10 @@ def interactive(action):
         store = AliasStore()
         if kind == 'remove':
             return True, '别名已删除。' if store.remove(action['name']) else '这个别名不存在。'
-        new = action.get('new') or ui.text('重命名别名', '输入新的别名，原账号绑定保持不变。', action['name'])
-        if new is None: return True, '已取消重命名。'
+        new = action.get('new')
+        if not new:
+            open_alfred_search('alias rename ' + action['name'] + ' ')
+            return True, ''
         store.rename(action['name'], new)
         return True, '别名已重命名。'
     if kind == 'prompt':
@@ -186,7 +214,7 @@ def interactive(action):
     show, duration = display_settings()
     result = request_login(domain, username, alias, action.get('name', '') if kind == 'bind' else '',
                            clear_seconds(), idle_seconds(), show, duration)
-    return result['ok'], result['message']
+    return handle_result(result)
 
 
 def run(mode, query):
@@ -197,6 +225,7 @@ def run(mode, query):
         return True, "扩展已准备。首次复制时配对，会话内可连续复制；pwlock 可立即锁定。"
     if mode == 'lock':
         result = lock_session()
+        if result['ok']: AliasEditor().discard()
         return result['ok'], result['message']
     site, username = parse_query(query)
     seconds = clear_seconds()
