@@ -107,8 +107,8 @@ class LocalUI:
             buttons.append({'id': 'password', 'label': '返回并复制密码'})
         elif account.kind == 'password':
             buttons.append({'id': 'refresh_password', 'label': '重新读取密码'})
-        buttons.append({'id': 'alias', 'label': '设置别名'})
+        buttons.append({'id': 'alias', 'label': '设置别名…'})
         result = self.run({'kind': 'secret', 'title': '密码已复制' if account.kind == 'password' else '验证码已复制',
-                           'message': account.label + '\n' + account.username + '\n' + ' · '.join(account.sites),
+                           'message': account.label + ' · ' + account.username + '\n' + ' · '.join(account.sites),
                            'value': value if show else '', 'show': show, 'buttons': buttons}, timeout=timeout)
         return result.get('action', 'done')

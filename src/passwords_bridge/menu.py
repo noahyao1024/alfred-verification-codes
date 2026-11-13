@@ -52,7 +52,9 @@ def catalog_menu(domain, records, needle='', mode='password', fallback=False):
         row = account.row(len(items))
         item = {
             'title': ('复制密码 · ' if account.kind == 'password' else '复制验证码 · ') + account.label,
-            'subtitle': ('⌘↩ 验证码 · ⌥↩ 别名  |  ' if account.kind == 'password' else '↩ 直接复制 · ⌥↩ 别名  |  ') + row['username'] + ' · ' + row['sites'],
+            # Keep the ordinary row calm: Alfred replaces this text with each
+            # modifier's action while the user holds that key.
+            'subtitle': row['username'] + ' · ' + row['sites'],
             'match': searchable,
             'valid': not account.duplicate,
         }
@@ -100,8 +102,9 @@ def alias_editor_menu(query, store, editor):
     name = alias_name(name)
     existing = next((item for item in store.all() if item['name'].casefold() == name.casefold()), None)
     replace = bool(existing and any(existing[key] != binding[key] for key in ('domain', 'identity')))
-    return {'items': [action_item(('更新已有别名 ' if replace else '保存别名 ') + name,
-                                  '回车确认绑定：' + target, 'save_alias_draft',
+    verb = '更新已有别名' if replace else '保存别名'
+    return {'items': [action_item(verb + ' “' + name + '”',
+                                  '回车确认 · ' + target, 'save_alias_draft',
                                   draft=draft['id'], name=name, replace=replace)]}
 
 
@@ -116,7 +119,7 @@ def menu(query, store=None, editor=None):
         return {'items': [action_item('锁定当前会话', '下次使用时重新配对', 'lock')]}
     if query == 'help':
         return {'items': [
-            {'title': '输入 pass github 搜索账号', 'subtitle': '↩ 复制密码；⌘↩ 复制验证码；⌥↩ 设置别名', 'valid': False},
+            {'title': '搜索网站或别名', 'subtitle': '例如 github · ↩ 密码 · ⌘↩ 验证码 · ⌥↩ 别名', 'valid': False},
             action_item('管理别名', '查看、重命名或删除已保存的别名', 'search', query='alias'),
             action_item('首次使用：初始化', '准备密码扩展', 'setup'),
             action_item('性能统计', '查看各步骤耗时', 'search', query='stats'),
@@ -148,15 +151,15 @@ def menu(query, store=None, editor=None):
     matches = exact + [record for record in matches if record not in exact]
     items = [alias_item(record, management=alias_mode) for record in matches]
     if not query:
-        items += [{'title': '输入网站或别名，例如 github', 'subtitle': '↩ 复制密码；⌘↩ 验证码；⌥↩ 设置别名', 'valid': False},
+        items += [{'title': '搜索网站或别名', 'subtitle': '输入 github · ↩ 密码 · ⌘↩ 验证码 · ⌥↩ 别名', 'valid': False},
                   action_item('管理别名', '查看、重命名或删除别名', 'search', query='alias'),
                   action_item('锁定会话', '清除当前授权与内存缓存', 'lock'),
                   action_item('帮助与设置', '使用说明、初始化、性能统计', 'search', query='help')]
     elif not items:
-        items = [{'title': '继续输入关键词', 'subtitle': '至少两个字符；无需区分短名称、域名或网址', 'valid': False}]
+        items = [{'title': '继续输入', 'subtitle': '网站关键词至少需要两个字符', 'valid': False}]
     if alias_mode:
-        items.append({'title': '管理别名：回车使用，⌘回车重命名，⌥回车删除',
-                      'subtitle': '添加：pass alias add 别名 网站域名；也可在复制弹窗中设置', 'valid': False})
+        items.append({'title': '回车使用 · ⌘↩ 重命名 · ⌥↩ 删除',
+                      'subtitle': '新别名可从账号条目或密码窗口开始设置', 'valid': False})
     return {'items': items}
 
 

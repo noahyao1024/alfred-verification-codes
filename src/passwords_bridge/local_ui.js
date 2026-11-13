@@ -68,33 +68,59 @@ function accountPicker(alert, items) {
 }
 
 function secretView(alert, value) {
-    const scroll = $.NSScrollView.alloc.initWithFrame($.NSMakeRect(0, 0, 560, 115));
+    // Use ordinary AppKit materials and spacing rather than drawing a custom
+    // web-style card. The surrounding NSAlert still follows light/dark mode.
+    const box = $.NSBox.alloc.initWithFrame($.NSMakeRect(0, 0, 520, 92));
+    box.boxType = 4; // NSBoxCustom
+    box.borderType = 1; // NSLineBorder
+    box.borderWidth = 1;
+    box.cornerRadius = 12;
+    box.borderColor = $.NSColor.separatorColor;
+    box.fillColor = $.NSColor.controlBackgroundColor;
+    const scroll = $.NSScrollView.alloc.initWithFrame($.NSMakeRect(8, 8, 504, 76));
     scroll.hasVerticalScroller = true;
-    scroll.borderType = 2;
-    const text = $.NSTextView.alloc.initWithFrame($.NSMakeRect(0, 0, 540, 115));
+    scroll.autohidesScrollers = true;
+    scroll.drawsBackground = false;
+    scroll.borderType = 0;
+    const text = $.NSTextView.alloc.initWithFrame($.NSMakeRect(0, 0, 488, 76));
     text.editable = false; text.selectable = false;
     text.verticallyResizable = true; text.horizontallyResizable = false;
     text.autoresizingMask = 2;
-    text.font = $.NSFont.monospacedSystemFontOfSizeWeight(24, 0);
+    text.drawsBackground = false;
+    text.textContainerInset = $.NSMakeSize(12, 10);
+    text.font = $.NSFont.monospacedSystemFontOfSizeWeight(22, 0.25);
     text.textColor = $.NSColor.labelColor;
-    text.textContainer.containerSize = $.NSMakeSize(540, 100000);
+    text.textContainer.containerSize = $.NSMakeSize(488, 100000);
     text.textContainer.widthTracksTextView = true;
     text.string = $(value);
     scroll.documentView = text;
-    alert.accessoryView = scroll;
+    box.contentView.addSubview(scroll);
+    alert.accessoryView = box;
     return text;
+}
+
+function successIcon() {
+    const image = $.NSImage.imageWithSystemSymbolNameAccessibilityDescription(
+        $('checkmark.circle.fill'), $('已复制'));
+    if (!image) return null;
+    const configuration = $.NSImageSymbolConfiguration.configurationWithHierarchicalColor(
+        $.NSColor.systemGreenColor);
+    return image.imageWithSymbolConfiguration(configuration);
 }
 
 function makeAlert(payload) {
     const alert = $.NSAlert.alloc.init;
     alert.messageText = $(payload.title || 'Passwords Quick Copy');
     alert.informativeText = $(payload.message || '');
+    alert.alertStyle = 1; // NSAlertStyleInformational
     const buttons = payload.buttons || [{id: 'done', label: '完成'}];
     buttons.forEach(button => alert.addButtonWithTitle($(button.label)));
     let field = null;
     if (payload.kind === 'picker') accountPicker(alert, payload.items);
     if (payload.kind === 'secret' && payload.show) secretView(alert, payload.value);
     if (payload.kind === 'secret') {
+        const icon = successIcon();
+        if (icon) alert.icon = icon;
         alert.window.level = 3; // floating: remain readable while typing in another app
         alert.window.collectionBehavior = 1 | 256; // all spaces + fullscreen auxiliary
         alert.window.movableByWindowBackground = true;
@@ -126,6 +152,8 @@ function run(args) {
         if (ObjC.unwrap(text.string) !== 'SYNTHETIC " 中文 012345') throw new Error('Secret display changed text');
         const floating = makeAlert({kind: 'secret', value: 'SYNTHETIC', show: true});
         if (Number(floating.alert.window.level) !== 3) throw new Error('Manual-entry window is not floating');
+        if (!floating.alert.icon) throw new Error('Copied-state symbol is missing');
+        if (Number(floating.alert.accessoryView.frame.size.width) !== 520) throw new Error('Secret card is not compact');
         const input = makeAlert({kind: 'text', initial: 'alias'});
         if (!input.alert.window.initialFirstResponder.isEqual(input.field)) throw new Error('Text field is not first responder');
         return 'Native account picker and secret display selftest passed';

@@ -205,6 +205,13 @@ count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
 
+Version 0.8.7 simplifies the visible interaction without changing the secret
+boundary. Ordinary Alfred result rows now reserve their subtitle for account
+identity; holding Command or Option reveals the alternate action in Alfred's
+native way. The password display uses a compact AppKit card, an SF Symbols
+success mark, and system colors that follow light/dark appearance. OTP still
+copies directly and alias names are still entered in Alfred.
+
 Version 0.8.6 moves alias entry into Alfred's own search field, so aliases no
 longer depend on a native alert receiving keyboard focus. It also adds direct
 code copying with Command-Return and removes the code display after copying.

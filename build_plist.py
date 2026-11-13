@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.8.6")
+VERSION = os.environ.get("VERSION", "0.8.7")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -92,8 +92,8 @@ objects = [
         "type": "alfred.workflow.output.notification", "uid": NOTIFY,
         "version": 1,
     },
-    scriptfilter(KW_PASSWORD, "{var:passwordkeyword}", "密码、验证码与别名",
-                 "输入关键词或别名；账号直接显示在 Alfred，回车复制",
+    scriptfilter(KW_PASSWORD, "{var:passwordkeyword}", "Passwords Quick Copy",
+                 "搜索网站或别名；回车复制密码",
                  '/usr/bin/python3 -I apple-passwords.py --menu "$1"'),
     runscript(S_PASSWORD, '/usr/bin/python3 -I apple-passwords.py --act "$1"'),
     keyword(KW_APP_OTP, "{var:appleotpkeyword}", "复制 Apple Passwords 验证码",
@@ -110,7 +110,7 @@ objects = [
 for obj in objects:
     if obj['uid'] == KW_PASSWORD:
         obj['config'].update({'scriptargtype': 1, 'alfredfiltersresults': False,
-                              'runningsubtext': '正在读取账号元数据…'})
+                              'runningsubtext': '正在查找账号…'})
 
 connections = {
     SF_OTP: [conn(S_OTP, 0, "copy code"),

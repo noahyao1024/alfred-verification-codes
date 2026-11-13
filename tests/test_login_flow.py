@@ -398,7 +398,8 @@ class AliasAndMenuTests(unittest.TestCase):
     def test_menu_no_longer_offers_separate_domain_or_original_host_paths(self):
         items = menu('g', self.store)['items']
         self.assertFalse(any('arg' in item for item in items))
-        self.assertIn('无需区分', items[0]['subtitle'])
+        self.assertEqual(items[0]['title'], '继续输入')
+        self.assertIn('至少需要两个字符', items[0]['subtitle'])
 
     def test_alias_matches_keep_priority_over_keyword_search(self):
         self.store.put('work', self.binding)
@@ -407,7 +408,8 @@ class AliasAndMenuTests(unittest.TestCase):
 
     def test_empty_menu_explains_unified_keyword_input(self):
         result = menu('', self.store)
-        self.assertIn('输入网站或别名', result['items'][0]['title'])
+        self.assertEqual(result['items'][0]['title'], '搜索网站或别名')
+        self.assertIn('⌘↩ 验证码', result['items'][0]['subtitle'])
         self.assertNotIn('元数据', json.dumps(result, ensure_ascii=False))
 
     def test_catalog_menu_filters_in_alfred_and_carries_metadata_only(self):
@@ -422,6 +424,8 @@ class AliasAndMenuTests(unittest.TestCase):
         self.assertEqual(validate_action(json.loads(result['items'][0]['mods']['cmd']['arg']))['action'], 'select_otp')
         self.assertEqual(validate_action(json.loads(result['items'][0]['mods']['alt']['arg']))['action'], 'begin_alias')
         self.assertIn('复制密码', result['items'][0]['title'])
+        self.assertEqual(result['items'][0]['subtitle'], 'alice · example.com')
+        self.assertNotIn('⌘↩', result['items'][0]['subtitle'])
         self.assertEqual(result['items'][-1]['title'], '查找此网站的验证码')
         self.assertNotIn('元数据', json.dumps(result, ensure_ascii=False))
         self.assertEqual(json.loads(result['items'][-1]['arg']),
@@ -510,6 +514,17 @@ class InteractiveNativeTests(unittest.TestCase):
 
 
 class LocalUITransportTests(unittest.TestCase):
+    def test_password_dialog_uses_compact_native_copy_card(self):
+        account = account_list(PASSWORDS, 'password', 'example.com')[0]
+        ui = LocalUI()
+        with patch.object(ui, 'run', return_value={'action': 'done'}) as dialog:
+            ui.copied(account, account.value, True, True, 45)
+        payload = dialog.call_args.args[0]
+        self.assertEqual(payload['title'], '密码已复制')
+        self.assertEqual(payload['message'].splitlines(),
+                         [account.label + ' · ' + account.username, ' · '.join(account.sites)])
+        self.assertEqual(payload['buttons'][-1]['label'], '设置别名…')
+
     def test_hidden_display_does_not_send_secret_to_window(self):
         account = account_list(PASSWORDS, 'password', 'example.com')[0]
         ui = LocalUI()

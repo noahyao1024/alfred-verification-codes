@@ -380,7 +380,7 @@
 				<key>queuemode</key>
 				<integer>1</integer>
 				<key>runningsubtext</key>
-				<string>正在读取账号元数据…</string>
+				<string>正在查找账号…</string>
 				<key>script</key>
 				<string>/usr/bin/python3 -I apple-passwords.py --menu "$1"</string>
 				<key>scriptargtype</key>
@@ -388,9 +388,9 @@
 				<key>scriptfile</key>
 				<string></string>
 				<key>subtext</key>
-				<string>输入关键词或别名；账号直接显示在 Alfred，回车复制</string>
+				<string>搜索网站或别名；回车复制密码</string>
 				<key>title</key>
-				<string>密码、验证码与别名</string>
+				<string>Passwords Quick Copy</string>
 				<key>type</key>
 				<integer>0</integer>
 				<key>withspace</key>
@@ -943,7 +943,7 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 	<key>variablesdontexport</key>
 	<array/>
 	<key>version</key>
-	<string>0.8.6</string>
+	<string>0.8.7</string>
 	<key>webaddress</key>
 	<string>https://github.com/noahyao1024/alfred-verification-codes</string>
 </dict>
