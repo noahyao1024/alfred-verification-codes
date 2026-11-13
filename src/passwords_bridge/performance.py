@@ -80,9 +80,11 @@ def stats_menu(path):
             'title': f'{PERF_PHASES[phase]} · 平均 {average} ms · P95 {p95} ms',
             'subtitle': f'最近 {len(samples)} 次；只记录阶段名和整数毫秒',
             'valid': False,
+            'icon': {'path': 'icons/stats.png'},
         })
     if not items:
         items.append({'title': '还没有性能样本',
                       'subtitle': '完成一次账号搜索或复制后，再输入 pass stats。',
-                      'valid': False})
+                      'valid': False,
+                      'icon': {'path': 'icons/stats.png'}})
     return {'items': items}

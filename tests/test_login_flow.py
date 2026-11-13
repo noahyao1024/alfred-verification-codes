@@ -383,13 +383,16 @@ class AliasAndMenuTests(unittest.TestCase):
 
     def test_menu_is_metadata_only_and_arguments_are_validated(self):
         self.store.put('gh-work', self.binding)
+        source = Path(__file__).resolve().parents[1] / 'src'
         for query in ('', 'gh', 'example.com', 'alias', 'alias add demo example.com', 'alias rename gh-work new', 'lock'):
             result = menu(query, self.store)
             self.assertNotIn('SECRET-', json.dumps(result))
             for item in result['items']:
                 if 'arg' in item: validate_action(json.loads(item['arg']))
+                self.assertTrue((source / item['icon']['path']).is_file())
         exact = menu('@gh-work', self.store)['items'][0]
         self.assertEqual(json.loads(exact['arg']), {'action': 'login', 'alias': 'gh-work'})
+        self.assertEqual(exact['icon']['path'], 'icons/alias.png')
 
     def test_invalid_action_does_not_become_code(self):
         for action in ({'action': 'eval', 'script': 'bad'}, {'action': 'login', 'query': 'a', 'password': 'SECRET'}):
@@ -426,7 +429,9 @@ class AliasAndMenuTests(unittest.TestCase):
         self.assertIn('复制密码', result['items'][0]['title'])
         self.assertEqual(result['items'][0]['subtitle'], 'alice · example.com')
         self.assertNotIn('⌘↩', result['items'][0]['subtitle'])
+        self.assertEqual(result['items'][0]['icon']['path'], 'icon.png')
         self.assertEqual(result['items'][-1]['title'], '查找此网站的验证码')
+        self.assertEqual(result['items'][-1]['icon']['path'], 'icons/otp.png')
         self.assertNotIn('元数据', json.dumps(result, ensure_ascii=False))
         self.assertEqual(json.loads(result['items'][-1]['arg']),
                          {'action': 'search', 'query': 'codes example.com'})
@@ -444,6 +449,7 @@ class AliasAndMenuTests(unittest.TestCase):
                         '3 copied_password\n4 perf unknown_phase 999\n')
         rendered = stats_menu(path)
         self.assertIn('平均 117 ms', rendered['items'][0]['title'])
+        self.assertEqual(rendered['items'][0]['icon']['path'], 'icons/stats.png')
         self.assertNotIn('example.com', json.dumps(rendered))
 
 

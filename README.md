@@ -185,6 +185,7 @@ dist/    built .alfredworkflow package
 ```sh
 ./build.sh              # runs TOTP vectors and integration boundary tests, then packages
 python3 build_plist.py  # regenerate info.plist only
+swift make_icons.swift  # regenerate the bundled macOS result icons
 ```
 
 After `pwsetup`, run `/usr/bin/python3 tests/check_native_bridge.py` for explicit
@@ -204,6 +205,12 @@ this shipped once with a generator that had never been verified.
 count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
+
+Version 0.8.8 keeps Alfred's own layout and theme, and uses the parts a Script
+Filter can actually control: password, verification-code, alias, setup,
+performance, lock, search, and help rows now have distinct SF Symbol-based
+icons. This makes actions scannable without adding permanent shortcut text or
+opening a separate results window.
 
 Version 0.8.7 simplifies the visible interaction without changing the secret
 boundary. Ordinary Alfred result rows now reserve their subtitle for account

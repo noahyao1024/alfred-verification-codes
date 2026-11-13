@@ -8,14 +8,21 @@ from .browser import BridgeError
 from .alias_editor import AliasEditor
 
 
-def action_item(title, subtitle, action, **values):
-    return {'title': title, 'subtitle': subtitle, 'arg': json.dumps(dict(action=action, **values), ensure_ascii=False)}
+def with_icon(item, name):
+    item['icon'] = {'path': 'icon.png' if name == 'password' else f'icons/{name}.png'}
+    return item
+
+
+def action_item(title, subtitle, action, icon=None, **values):
+    item = {'title': title, 'subtitle': subtitle,
+            'arg': json.dumps(dict(action=action, **values), ensure_ascii=False)}
+    return with_icon(item, icon) if icon else item
 
 
 def alias_item(record, management=False):
     identity = record['identity']
     item = action_item(record['name'], display_text(record['domain'] + ' · ' + identity['username'] + ' · ' + identity['title']),
-                       'login', alias=record['name'])
+                       'login', icon='alias', alias=record['name'])
     if management:
         item['mods'] = {
             'cmd': {'arg': json.dumps({'action': 'rename', 'name': record['name']}), 'subtitle': '重命名别名'},
@@ -58,6 +65,7 @@ def catalog_menu(domain, records, needle='', mode='password', fallback=False):
             'match': searchable,
             'valid': not account.duplicate,
         }
+        with_icon(item, account.kind)
         if not account.duplicate:
             item['arg'] = json.dumps({'action': 'select', 'domain': domain, 'identity': identity},
                                      ensure_ascii=False)
@@ -74,38 +82,41 @@ def catalog_menu(domain, records, needle='', mode='password', fallback=False):
             item['subtitle'] = '记录标识重复，请先在系统「密码」中区分。'
         items.append(item)
     if not items:
-        items.append({
+        items.append(with_icon({
             'title': '没有匹配的密码账号' if mode == 'password' else '没有匹配的验证码账号',
             'subtitle': '可继续修改 Alfred 输入框中的搜索词。',
             'valid': False,
-        })
+        }, 'search'))
     if mode == 'password':
         switch = ('codes ' + domain, '查找此网站的验证码',
                   '回车选择验证码账号；密码条目也可按 ⌘↩ 直接复制验证码')
-        items.append(action_item(switch[1], switch[2], 'search', query=switch[0]))
+        items.append(action_item(switch[1], switch[2], 'search', icon='otp', query=switch[0]))
     elif not fallback:
         items.append(action_item('返回密码列表', '回车选择要复制的密码',
-                                 'search', query=domain))
+                                 'search', icon='password', query=domain))
     return {'items': items}
 
 
 def alias_editor_menu(query, store, editor):
     draft = editor.current()
     if draft is None:
-        return {'items': [{'title': '请先选择要设置别名的账号',
-                           'subtitle': '在账号条目按 ⌥↩，或在密码窗口点击「设置别名」', 'valid': False}]}
+        return {'items': [with_icon({'title': '请先选择要设置别名的账号',
+                                     'subtitle': '在账号条目按 ⌥↩，或在密码窗口点击「设置别名」',
+                                     'valid': False}, 'alias')]}
     name = query[len('alias save'):].strip()
     binding = draft['binding']
     target = display_text(binding['domain'] + ' · ' + binding['identity']['username'] + ' · ' + binding['identity']['title'])
     if not name:
-        return {'items': [{'title': '输入别名，例如 gh-work', 'subtitle': '绑定账号：' + target, 'valid': False}]}
+        return {'items': [with_icon({'title': '输入别名，例如 gh-work',
+                                     'subtitle': '绑定账号：' + target,
+                                     'valid': False}, 'alias')]}
     name = alias_name(name)
     existing = next((item for item in store.all() if item['name'].casefold() == name.casefold()), None)
     replace = bool(existing and any(existing[key] != binding[key] for key in ('domain', 'identity')))
     verb = '更新已有别名' if replace else '保存别名'
     return {'items': [action_item(verb + ' “' + name + '”',
                                   '回车确认 · ' + target, 'save_alias_draft',
-                                  draft=draft['id'], name=name, replace=replace)]}
+                                  icon='alias', draft=draft['id'], name=name, replace=replace)]}
 
 
 def menu(query, store=None, editor=None):
@@ -114,33 +125,41 @@ def menu(query, store=None, editor=None):
     if query == 'alias save' or query.startswith('alias save '):
         return alias_editor_menu(query, store, editor or AliasEditor(store.root))
     if query == 'setup':
-        return {'items': [action_item('准备密码扩展', '首次使用时准备并校验扩展', 'setup')]}
+        return {'items': [action_item('准备密码扩展', '首次使用时准备并校验扩展',
+                                      'setup', icon='setup')]}
     if query == 'lock':
-        return {'items': [action_item('锁定当前会话', '下次使用时重新配对', 'lock')]}
+        return {'items': [action_item('锁定当前会话', '下次使用时重新配对',
+                                      'lock', icon='lock')]}
     if query == 'help':
         return {'items': [
-            {'title': '搜索网站或别名', 'subtitle': '例如 github · ↩ 密码 · ⌘↩ 验证码 · ⌥↩ 别名', 'valid': False},
-            action_item('管理别名', '查看、重命名或删除已保存的别名', 'search', query='alias'),
-            action_item('首次使用：初始化', '准备密码扩展', 'setup'),
-            action_item('性能统计', '查看各步骤耗时', 'search', query='stats'),
-            action_item('锁定会话', '清除当前授权与内存缓存', 'lock'),
+            with_icon({'title': '搜索网站或别名',
+                       'subtitle': '例如 github · ↩ 密码 · ⌘↩ 验证码 · ⌥↩ 别名',
+                       'valid': False}, 'search'),
+            action_item('管理别名', '查看、重命名或删除已保存的别名',
+                        'search', icon='alias', query='alias'),
+            action_item('首次使用：初始化', '准备密码扩展', 'setup', icon='setup'),
+            action_item('性能统计', '查看各步骤耗时', 'search', icon='stats', query='stats'),
+            action_item('锁定会话', '清除当前授权与内存缓存', 'lock', icon='lock'),
         ]}
     if query.startswith('alias add '):
         parts = query.split(maxsplit=3)
         if len(parts) != 4:
             return {'items': [{'title': '用法：pass alias add 别名 网站域名 [用户名]', 'valid': False}]}
         name = alias_name(parts[2])
-        return {'items': [action_item('添加别名 ' + name, '查询账号并选择要绑定的条目', 'bind', name=name, query=parts[3])]}
+        return {'items': [action_item('添加别名 ' + name, '查询账号并选择要绑定的条目',
+                                      'bind', icon='alias', name=name, query=parts[3])]}
     if query.startswith('alias remove '):
         name = alias_name(query.split(maxsplit=2)[2])
-        return {'items': [action_item('删除别名 ' + name, '仅删除本地别名，不删除密码', 'remove', name=name)]}
+        return {'items': [action_item('删除别名 ' + name, '仅删除本地别名，不删除密码',
+                                      'remove', icon='alias', name=name)]}
     if query.startswith('alias rename '):
         parts = query.split()
         if len(parts) not in (3, 4):
             return {'items': [{'title': '用法：pass alias rename 旧别名 [新别名]', 'valid': False}]}
         values = {'name': alias_name(parts[2])}
         if len(parts) == 4: values['new'] = alias_name(parts[3])
-        return {'items': [action_item('重命名别名 ' + values['name'], '保留原账号绑定', 'rename', **values)]}
+        return {'items': [action_item('重命名别名 ' + values['name'], '保留原账号绑定',
+                                      'rename', icon='alias', **values)]}
 
     records = store.all()
     alias_mode = query == 'alias' or query.startswith('alias ')
@@ -151,15 +170,23 @@ def menu(query, store=None, editor=None):
     matches = exact + [record for record in matches if record not in exact]
     items = [alias_item(record, management=alias_mode) for record in matches]
     if not query:
-        items += [{'title': '搜索网站或别名', 'subtitle': '输入 github · ↩ 密码 · ⌘↩ 验证码 · ⌥↩ 别名', 'valid': False},
-                  action_item('管理别名', '查看、重命名或删除别名', 'search', query='alias'),
-                  action_item('锁定会话', '清除当前授权与内存缓存', 'lock'),
-                  action_item('帮助与设置', '使用说明、初始化、性能统计', 'search', query='help')]
+        items += [with_icon({'title': '搜索网站或别名',
+                             'subtitle': '输入 github · ↩ 密码 · ⌘↩ 验证码 · ⌥↩ 别名',
+                             'valid': False}, 'search'),
+                  action_item('管理别名', '查看、重命名或删除别名',
+                              'search', icon='alias', query='alias'),
+                  action_item('锁定会话', '清除当前授权与内存缓存',
+                              'lock', icon='lock'),
+                  action_item('帮助与设置', '使用说明、初始化、性能统计',
+                              'search', icon='help', query='help')]
     elif not items:
-        items = [{'title': '继续输入', 'subtitle': '网站关键词至少需要两个字符', 'valid': False}]
+        items = [with_icon({'title': '继续输入',
+                            'subtitle': '网站关键词至少需要两个字符',
+                            'valid': False}, 'search')]
     if alias_mode:
-        items.append({'title': '回车使用 · ⌘↩ 重命名 · ⌥↩ 删除',
-                      'subtitle': '新别名可从账号条目或密码窗口开始设置', 'valid': False})
+        items.append(with_icon({'title': '回车使用 · ⌘↩ 重命名 · ⌥↩ 删除',
+                                'subtitle': '新别名可从账号条目或密码窗口开始设置',
+                                'valid': False}, 'alias'))
     return {'items': items}
 
 
