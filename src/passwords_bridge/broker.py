@@ -360,9 +360,13 @@ class SessionManager:
             accounts = self._metadata_accounts(request['domain'], mode)
             # The common password path returns as soon as password metadata is
             # ready. Only an empty password catalogue pays for an OTP query.
+            # Keep an entirely empty lookup in password mode: reporting it as
+            # an OTP result makes a missing website look like a code-only
+            # search and hides the actual website-scoped API boundary.
             if mode == 'password' and not accounts:
-                mode = 'otp'
-                accounts = self._metadata_accounts(request['domain'], mode)
+                otp_accounts = self._metadata_accounts(request['domain'], 'otp')
+                if otp_accounts:
+                    mode, accounts = 'otp', otp_accounts
             cached = (self.clock(), mode, accounts)
             self.catalog_cache[key] = cached
             self.catalog_cache[(request['domain'], mode)] = cached

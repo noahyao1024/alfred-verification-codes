@@ -119,6 +119,18 @@ class FrontendTests(unittest.TestCase):
         self.assertEqual(json.loads(result['items'][0]['arg'])['action'], 'select')
         self.assertNotIn('SECRET-', json.dumps(result))
 
+    def test_empty_bare_keyword_explains_no_website_boundary(self):
+        reply = {'ok': True, 'mode': 'password', 'fallback': False, 'accounts': []}
+        with tempfile.TemporaryDirectory() as root, \
+             patch.object(app, 'request_catalog', return_value=reply) as request, \
+             patch.dict(os.environ, {'SESSION_IDLE_SECONDS': '300'}):
+            result = app.direct_menu('m4', app.AliasStore(root))
+        request.assert_called_once_with('m4.com', 'password', 300)
+        self.assertIn('m4', result['items'][0]['title'])
+        self.assertIn('无网站条目', result['items'][0]['subtitle'])
+        self.assertNotIn('验证码', json.dumps(result, ensure_ascii=False))
+        self.assertFalse(result['items'][0]['valid'])
+
     def test_exact_alias_wins_over_direct_localhost_routing(self):
         identity = {'kind': 'password', 'username': 'alice', 'title': 'Local',
                     'sites': ['localhost']}

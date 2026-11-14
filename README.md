@@ -51,7 +51,9 @@ There is no longer a separate short-name/domain/URL menu: bare words, full
 domains, and http/https URLs use the same keyword path. A bare word is resolved
 to `.com`; type another suffix explicitly when needed. Exact aliases keep
 priority. Apple's API remains website-scoped, so this does not enumerate the
-whole vault or search arbitrary titles across unrelated sites.
+whole vault or search arbitrary titles across unrelated sites. Passwords entries
+with no Website field are not exposed by that browser API. Add an actual website
+to such an entry before querying it, then optionally bind a short Alfred alias.
 
 | Alfred input | Result |
 | --- | --- |
@@ -205,6 +207,11 @@ this shipped once with a generator that had never been verified.
 count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
+
+Version 0.8.9 keeps a completely empty password lookup in password mode instead
+of misreporting it as an empty verification-code search. A bare keyword with no
+website result now explains the no-Website limitation directly in Alfred. It
+does not export or duplicate the vault to simulate unsupported title search.
 
 Version 0.8.8 keeps Alfred's own layout and theme, and uses the parts a Script
 Filter can actually control: password, verification-code, alias, setup,

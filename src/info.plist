@@ -572,6 +572,7 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 * Opening `pass` prewarms the isolated browser without pairing, querying accounts, or reading credentials.
 * `pass github [search text]`: use one keyword path, query `github.com` automatically, and show matching password accounts directly in Alfred.
 * Full domains and URLs use the same input path; exact aliases keep priority.
+* Apple exposes accounts by website. Entries with no Website field cannot be read through its browser helper; an empty bare-keyword search explains this directly.
 * `pass codes github`: show verification-code accounts on demand; Return copies a code directly.
 * Return on a password account copies it and opens a temporary window for manual typing. Command-Return copies its matching code directly. The Copy Verification Code button in the password window also copies the code and closes the window. Codes never open a value window.
 * Option-Return on an account or Set Alias in the password window opens `pass alias save ` in Alfred's own input field. Type a name, check the account preview, and press Return; then use `pass gh-work` to reuse that account.
@@ -943,7 +944,7 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 	<key>variablesdontexport</key>
 	<array/>
 	<key>version</key>
-	<string>0.8.8</string>
+	<string>0.8.9</string>
 	<key>webaddress</key>
 	<string>https://github.com/noahyao1024/alfred-verification-codes</string>
 </dict>

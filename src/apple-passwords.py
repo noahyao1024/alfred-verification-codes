@@ -18,7 +18,7 @@ from passwords_bridge.extension import data_dir, setup
 from passwords_bridge.aliases import AliasStore
 from passwords_bridge.alias_editor import AliasEditor
 from passwords_bridge.local_ui import LocalUI
-from passwords_bridge.menu import catalog_menu, menu, validate_action
+from passwords_bridge.menu import catalog_menu, menu, validate_action, with_icon
 from passwords_bridge.performance import stats_menu
 
 
@@ -129,6 +129,16 @@ def direct_menu(query, store=None):
             not isinstance(result.get('accounts'), list) or
             type(result.get('fallback')) is not bool):
         raise BridgeError('账号列表响应格式无效。')
+    bare_keyword = query.strip()
+    if (not result['accounts'] and result['mode'] == 'password' and
+            bare_keyword and ' ' not in bare_keyword and
+            '.' not in bare_keyword and '://' not in bare_keyword):
+        return {'items': [with_icon({
+            'title': '没有找到网站「' + domain + '」',
+            'subtitle': ('若「' + bare_keyword[:80] +
+                         '」是条目名称：无网站条目不能由 Apple 接口读取，请先在「密码」中添加网站。'),
+            'valid': False,
+        }, 'search')]}
     return catalog_menu(domain, result['accounts'], needle, result['mode'], result['fallback'])
 
 

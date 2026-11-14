@@ -1,10 +1,10 @@
-# Security scope of version 0.8.8
+# Security scope of version 0.8.9
 
 This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.8.8 behavior |
+| Boundary | Version 0.8.9 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
 | Session lifetime | 30 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
@@ -54,6 +54,11 @@ confirmation, once per copy/refresh. No biometric check is disabled.
 OTP matching never falls back to another username; broader-domain or multiple
 matches require explicit selection. Indistinguishable metadata duplicates are
 refused, as the protocol does not provide a stable identifier we can rely on.
+If both website-scoped password and OTP metadata are empty, the result remains a
+password lookup instead of being presented as an OTP-only search. Apple's
+browser helper does not expose entries with no Website field or a whole-vault
+title query. The workflow reports that boundary rather than exporting or
+duplicating the vault.
 
 OTP metadata may omit the optional source/title field. That omission is tolerated
 only when username and sites resolve to one factor; multiple matches still fail.

@@ -204,6 +204,16 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(self.instances[0].otp_metadata_queries, 1)
         self.assertNotIn('111111', json.dumps(result))
 
+    def test_entirely_empty_catalog_stays_in_requested_password_mode(self):
+        self.factory.passwords = []
+        self.factory.codes = []
+        result = self.manager.catalog(catalog_request())
+        self.assertEqual(result, {
+            'ok': True, 'mode': 'password', 'accounts': [], 'fallback': False,
+        })
+        self.assertEqual(self.instances[0].password_metadata_queries, 1)
+        self.assertEqual(self.instances[0].otp_metadata_queries, 1)
+
     def test_alfred_selection_skips_picker_and_metadata_scans(self):
         identity = account_list(PASSWORDS, 'password', 'example.com', metadata_only=True)[1].identity
         result = self.manager.select(select_request(identity))

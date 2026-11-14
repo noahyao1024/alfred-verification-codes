@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.8.8")
+VERSION = os.environ.get("VERSION", "0.8.9")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -218,6 +218,7 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 * Opening `pass` prewarms the isolated browser without pairing, querying accounts, or reading credentials.
 * `pass github [search text]`: use one keyword path, query `github.com` automatically, and show matching password accounts directly in Alfred.
 * Full domains and URLs use the same input path; exact aliases keep priority.
+* Apple exposes accounts by website. Entries with no Website field cannot be read through its browser helper; an empty bare-keyword search explains this directly.
 * `pass codes github`: show verification-code accounts on demand; Return copies a code directly.
 * Return on a password account copies it and opens a temporary window for manual typing. \
 Command-Return copies its matching code directly. The Copy Verification Code button in the password window \
