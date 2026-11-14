@@ -1,17 +1,129 @@
-# Verification Codes
+# Passwords Quick Copy
 
-An [Alfred](https://www.alfredapp.com) workflow that copies time-based
-verification codes to the clipboard, generated locally from seeds held in your
-login keychain.
+An [Alfred](https://www.alfredapp.com) workflow that copies passwords and current
+verification codes from Apple Passwords using a short-lived browser session.
+The MIT protocol bridge is adapted from [apwlib 0.1.2](https://github.com/michel-tricot/apwcli/tree/v0.1.2);
+the transport, lifecycle, operation restrictions, and clipboard integration are maintained here.
+The existing `otp` / `otpadd` commands also support standalone seeds in your login keychain.
 
 ## Setup
 
-Nothing to set up. Seeds live in your login keychain, never in this workflow or
-this repository.
+Import `dist/Passwords Quick Copy.alfredworkflow`, then run `pwsetup` in Alfred
+to download the pinned iCloud Passwords extension. No apwcli/chauffeur install
+is required. This edition uses Python 3.9+ and its standard library (available
+on this development Mac through Command Line Tools).
+
+Opening `pass` starts the isolated browser/helper in the background without
+querying accounts or asking for a PIN. The first website query asks for Apple pairing. Enter the PIN shown
+by macOS into the local dialog; subsequent password and OTP copies reuse that
+session while it remains valid. By default, it stays warm for the 30-minute
+maximum lifetime. Screen lock, sleep/user switching, or `pwlock` closes it
+earlier. Apple can invalidate its pairing independently, in which case the next
+operation pairs again. This private workflow process is separate from ordinary
+Chrome windows, so leaving a normal Chrome window open does not control its
+lifetime. This replaces 0.6's pairing on every copy.
+
+This requires Alfred Powerpack and a supported Chromium browser (Chrome, Brave,
+Edge, or Chromium) and Apple's browser helper. Setup accepts only the pinned
+3.4.0 extension archive; a different store release fails verification instead
+of silently changing executable code. It is a third-party bridge;
+changes to Apple's extension can affect compatibility. No Apple Passwords CSV
+export or duplicated OTP seed is required for `pass` / `pcode`.
+
+For the standalone `otp` / `otpadd` commands, no setup changes:
+seeds live in your login keychain, never in this workflow or repository.
 
 Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
+
+Use **one entry point: `pass`**. Start with `pass github`; it transparently queries
+`github.com`, and matching account
+metadata appears directly in Alfred and remains searchable in its existing input.
+Press Return on **复制密码** to copy the password and show it in a movable
+floating window for manual typing. Press Command-Return on that account to copy
+its current verification code directly, or click **复制验证码** in the password
+window. Copying a code closes the window and finishes immediately; it never
+opens a code display. Choose **查找此网站的验证码** to browse the site's code
+accounts separately; when no password exists, the workflow falls back to them
+automatically. A broader-domain or multiple-code match still asks you to select
+the intended code.
+
+There is no longer a separate short-name/domain/URL menu: bare words, full
+domains, and http/https URLs use the same keyword path. A bare word is resolved
+to `.com`; type another suffix explicitly when needed. Exact aliases keep
+priority. Apple's API remains website-scoped, so this does not enumerate the
+whole vault or search arbitrary titles across unrelated sites. Passwords entries
+with no Website field are not exposed by that browser API. Add an actual website
+to such an entry before querying it, then optionally bind a short Alfred alias.
+
+| Alfred input | Result |
+| --- | --- |
+| `pass` | Show saved aliases/actions and prewarm the isolated browser without pairing |
+| `pass github` | Query `github.com` directly and show its password accounts in Alfred |
+| `pass github.com` or `pass https://github.com` | Use the same keyword path without a separate URL mode |
+| `pass codes github` | Show verification-code accounts in Alfred |
+| `pass github me@example.com` | Filter the returned account list by username/title/site text |
+| `pass gh-work` or `pass @gh-work` | Use the account bound to this alias |
+| `pass alias` | List aliases; Command-Return renames, Option-Return deletes the alias |
+| `pass alias add gh-work github.com [username]` | Select an account and save an alias without copying a secret |
+| `pass alias rename gh-work gh-team` | Rename an alias |
+| `pass alias remove gh-work` | Remove only the alias |
+| `pass setup` | Prepare and verify the pinned official extension |
+| `pass lock` | Close the current session without starting a new one |
+| `pass stats` | Show recent average and P95 timings for each secret-free phase |
+| `otp` / `otpadd` | Use the existing, separate local seed store |
+
+The legacy `pcode`, `pwsetup`, and `pwlock` shortcuts remain compatible, but are
+not needed for the new flow. Filter text is literal; do not add shell quotes.
+A full http/https URL is normalized to its hostname. Apple's helper matches by
+registrable domain, so subdomains can return the same set of accounts. Alfred
+shows title, username, and returned sites rather than guessing which
+record was intended. Records with identical visible identifiers are refused;
+rename/distinguish them in Passwords first.
+
+To save an alias, press Option-Return on an account or click **设置别名** in the
+password window. Alfred opens `pass alias save ` in its own input field. Type a
+name, check the account preview, and press Return. No separate native text dialog
+is used. Normal alias results use Option-Return to rename and Command-Return to
+copy the matching code; `pass alias` retains its management shortcuts above.
+
+Aliases
+contain only its query domain, username, title, sites, and credential kind, never
+a password or OTP seed. Password changes and result reordering do not change the
+binding. A renamed/changed/duplicated account cannot silently redirect an alias:
+query the domain again and update the binding. Overwriting a different binding
+shows **更新已有别名** with the new target and requires Return to confirm.
+`aliases.json` is private and updated atomically. The temporary editor draft
+contains account metadata only, expires after five minutes, and is discarded
+after saving or `pass lock`. An expired edit must be started from the account again.
+
+`pass` and `pcode` connect to a short-lived broker. It owns the private
+browser profile and anonymous CDP pipes; no TCP debugging listener is opened.
+The broker's Unix socket requires the same OS user and a per-session token in a
+private directory. It returns account metadata for the Alfred result list, but
+copies secrets within the broker and never returns passwords or codes to Alfred.
+On explicit user request, the copied password is
+displayed in a temporary native window for manual typing; it is not put into
+Notification Center history or debugging output. Turn off **Show password after copy**
+(`SHOW_SECRETS`) to copy passwords directly without a window. Codes always copy
+directly, regardless of that setting. Set
+`DISPLAY_SECONDS` (10–180, default 45) to change the window timeout. Screen viewers
+can see the window. It closes when the operation is cancelled/locked or times out.
+Credentials
+receive clipboard privacy markers used by Alfred and other compliant history
+managers; applications that ignore these markers may still record the clipboard.
+The existing clear delay applies (45 seconds by default, `0` disables it).
+The clipboard cleanup helper holds only a pasteboard change counter, never the secret;
+a subsequent copy, even of identical text, is preserved.
+
+Set `SESSION_IDLE_SECONDS` in Workflow Configuration to change the idle timeout
+(30–1800 seconds, default 1800). Keep-alive and status checks do not extend it.
+Copies and active interactive flows refresh the idle timer; the 30-minute lifetime cap still applies. A typo
+or ambiguous account can be corrected within the same pairing session.
+
+These commands read Apple Passwords; they do not list the whole vault or edit
+credentials. The original local-seed commands below remain separate.
 
 **Add an account.** Copy its secret or `otpauth://` link, then use the `otpadd`
 keyword. Give it a name, or leave it blank to take the name from the link. Your
@@ -75,19 +187,119 @@ dist/    built .alfredworkflow package
 ```
 
 ```sh
-./build.sh              # runs the TOTP selftest, then packages
+./build.sh              # runs TOTP vectors and integration boundary tests, then packages
 python3 build_plist.py  # regenerate info.plist only
+swift make_icons.swift  # regenerate the bundled macOS result icons
 ```
+
+After `pwsetup`, run `/usr/bin/python3 tests/check_native_bridge.py` for explicit
+Chrome/extension checks. These verify pipe transport, absence of a TCP listener,
+request restrictions, reuse of the actual browser with synthetic credentials,
+native notification delivery, interruption, and teardown. The notification tests
+use a private test notification instead of locking the user's screen. They do
+not prompt for a PIN or retrieve credentials. Node, when installed, is
+used only for the JavaScript policy development test; it is not a runtime dependency.
 
 The build fails if the RFC 6238 vectors stop matching. That guard exists because
 this shipped once with a generator that had never been verified.
 
+## Troubleshooting
+
+**Touch ID and pairing are different events.** The workflow's pairing log cannot
+count macOS biometric prompts. Initial Apple pairing and credential access may
+require separate system confirmations; the workflow cannot promise one Touch ID
+prompt or bypass the system's checks.
+
+Version 0.8.10 lets a metadata-only website search finish if Alfred replaces its
+Script Filter connection while the pairing dialog has focus. After fresh pairing,
+the workflow reopens Alfred on the original query and requests one bounded rerun;
+the cached rerun does not pair or loop again.
+
+Version 0.8.9 keeps a completely empty password lookup in password mode instead
+of misreporting it as an empty verification-code search. A bare keyword with no
+website result now explains the no-Website limitation directly in Alfred. It
+does not export or duplicate the vault to simulate unsupported title search.
+
+Version 0.8.8 keeps Alfred's own layout and theme, and uses the parts a Script
+Filter can actually control: password, verification-code, alias, setup,
+performance, lock, search, and help rows now have distinct SF Symbol-based
+icons. This makes actions scannable without adding permanent shortcut text or
+opening a separate results window.
+
+Version 0.8.7 simplifies the visible interaction without changing the secret
+boundary. Ordinary Alfred result rows now reserve their subtitle for account
+identity; holding Command or Option reveals the alternate action in Alfred's
+native way. The password display uses a compact AppKit card, an SF Symbols
+success mark, and system colors that follow light/dark appearance. OTP still
+copies directly and alias names are still entered in Alfred.
+
+Version 0.8.6 moves alias entry into Alfred's own search field, so aliases no
+longer depend on a native alert receiving keyboard focus. It also adds direct
+code copying with Command-Return and removes the code display after copying.
+The credential-free browser prewarm from 0.8.5 still runs when the empty `pass`
+menu opens. The prewarm
+does not pair, query metadata, read a value, or extend an existing session's idle
+deadline; the first explicit website query reuses it.
+
+Version 0.8.4 keeps Alfred's input visible while account metadata loads and
+renders the results directly in Alfred. The common path now requests only Apple's
+metadata-only password listing (`cmd 4`, ghost search); it defers OTP metadata
+(`cmd 16`) until requested, eliminating one serial helper call before password
+results. Password aliases and selected Alfred results also skip metadata scans
+and resolve their bound identity during the one selected value read. Metadata
+remains cached for the bounded session, making repeated filtering immediate.
+The extension now waits for Apple's native `CmdHello` reply before starting SRP
+pairing, removing the race that caused the observed 20-second first-challenge
+timeout; a challenge that still stalls is capped at 12 seconds and is not mixed
+with a second SRP exchange. Initial pairing still requires Apple's system
+handshake and the user's PIN, so it cannot be equivalent to an already warm session.
+
+The password value (`cmd 5`) is read only after selecting an account, and is
+cached in broker memory for the bounded session so repeated copies avoid another
+password read (use Refresh Password in the window to
+force a re-read; `pwlock` or lock/idle expiry clears the cache). OTP values are
+read only after the user requests them, once per copy/refresh. `pass stats`
+summarizes recent average and P95 timings for broker/browser startup, pairing,
+metadata/value reads, Alfred-result readiness, the legacy picker, and total
+requests. Logs contain only allowlisted phase/event names and integer
+milliseconds—never domains, usernames, responses, or credential values.
+
+If upgrading from 0.5, stop the old service once with `apwcli daemon stop`.
+The new workflow neither connects to it nor restarts it. Its own bounded session
+broker starts when `pass` prewarms, account metadata is requested, or a credential
+is copied. Use `pwlock` to stop it. Setup and
+runtime files live under `~/Library/Application Support/Passwords Quick Copy`:
+the pinned extension, a mode-0600 `session.json` (PID/token while running), the
+mode-0600 socket, and `session.log`. Logs contain only allowlisted events and
+phase timings, never account names, domains, PINs, passwords, or request bodies.
+
+On timeout/lock/shutdown, the broker closes its browser and removes the session
+socket, token, and temporary browser profile. A force-killed process can leave
+temporary files; closing its command pipe still makes Chrome exit. The monitor
+exits if its broker parent dies. Stale runtime state is replaced under a singleton
+lock on the next start. No login service is installed.
+
+If setup reports a hash mismatch, do not bypass it: a compatible workflow update
+is needed. Dismissing a PIN dialog cancels the copy and discards that browser
+session. If startup is refused, unlock the Mac; the broker refuses to open a
+session when the console is locked/inactive or lock monitoring is unavailable.
+An uncertain connection result is not retried automatically; check the clipboard
+before repeating the command.
+
+With multiple accounts, append the username. With no verification code, check
+that the matching Apple Passwords entry has a code configured. The new commands
+never fall back to the standalone `otp` store.
+
 ## Prior history
 
 This workflow started out trying to copy passwords directly from Apple's
-Passwords app. That turned out to be impossible; the evidence is written up in
-[FINDINGS.md](FINDINGS.md), and the code that attempted it is in the git
-history.
+Passwords app's UI. That approach failed; the observations are recorded in
+[FINDINGS.md](FINDINGS.md). The new `pass` / `pcode` commands use the browser
+extension bridge instead of UI scripting. Version 0.6 replaces the 0.5 apwcli
+daemon integration with a restricted one-operation backend; 0.7 adds bounded
+session reuse to avoid pairing for every copy. See
+[使用说明.md](使用说明.md) and [SECURITY.md](SECURITY.md) for usage and the explicit limits.
+Third-party code and licensing are recorded in [THIRD_PARTY_NOTICES.md](src/THIRD_PARTY_NOTICES.md).
 
 ## Licence
 

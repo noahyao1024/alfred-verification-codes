@@ -1,7 +1,60 @@
-# Why the Apple Passwords app cannot be scripted
+# Earlier Passwords UI automation findings
+
+Update for 0.8.5: opening the empty `pass` menu starts the isolated browser and
+Apple helper in the background without pairing or reading account data, so typing
+the first website can reuse that startup work. The alias text dialog now assigns
+keyboard focus to its input field. The paired-session limit remains 30 minutes:
+longer retention would enlarge the credential-authorization window rather than
+make already cached warm searches faster.
+
+Update for 0.8.4: a measured cold GitHub search spent 7.1 seconds starting the
+browser and then timed out for 20 seconds before any metadata query because the
+native `CmdHello` reset raced the first SRP challenge. Pairing now waits for
+per-port native readiness and caps a stalled challenge at 12 seconds without
+mixing SRP exchanges. Short names, domains, and URLs share one keyword path
+(`github` resolves directly to `github.com`), metadata is cached for the bounded
+session, and the default warm idle time is 30 minutes.
+
+Update for 0.8.3: website-scoped account metadata now renders directly as
+Alfred Script Filter results. The common password path performs only the `cmd 4`
+metadata query before showing results; OTP metadata is lazy, and aliases/direct
+selections skip catalogue scans. Allowlisted millisecond timings can be summarized
+with `pass stats`; no domain, account, response, or secret is logged.
+
+Update for 0.8.2: account discovery now uses metadata-only login listing (`cmd 4`,
+`ACT 5`) as well as metadata-only OTP listing (`cmd 16`, `ACT 5`), so opening the
+picker, cancelling selection, or binding an alias does not read secrets or trigger
+Touch ID. Authorized passwords are cached in broker memory for the active bounded
+session so repeated copies of the same account do not re-trigger Touch ID.
+
+Update for 0.8.1: short names now have explicit domain-completion/original-host
+query actions. OTP discovery uses the native metadata-only command; value reads
+are deferred until needed. A pairing event in our log does not count or explain
+all macOS Touch ID prompts, so no one-prompt guarantee is implied.
+
+Update for 0.8.0: the unified `pass` entry now uses a native account picker,
+metadata-only aliases, staged password/OTP copying, and optional transient
+plaintext display for manual typing. These changes do not restore Passwords-app
+UI automation or whole-vault enumeration. See the current README and SECURITY.md.
+
+Update for 0.7.0: sessions are now reused for a bounded interval to avoid pairing
+on every copy. Browser control remains on anonymous pipes. A token-protected,
+copy-only local Unix socket is now used between Alfred and the bounded broker;
+see [SECURITY.md](SECURITY.md) for the revised trust boundary.
+
+Update for 0.6.0: the protocol bridge is now bundled under its MIT license.
+Browser control uses inherited CDP pipes and each copy tears down its session;
+the apwcli daemon and its TCP debugging endpoint are no longer used. See
+[SECURITY.md](SECURITY.md) for verified boundaries and remaining limitations.
+
+Update for 0.5.0: these are historical observations of the UI-scripting route,
+not proof that all integration is impossible. `pass` and `pcode` now use
+[apwcli](https://github.com/michel-tricot/apwcli), which communicates through
+Apple's iCloud Passwords browser extension. This requires local pairing and a
+supported browser; it does not rely on programmatic row selection.
 
 This workflow began as an attempt to copy passwords directly out of Apple's
-**Passwords** app. That is not possible, and this file records the evidence so
+**Passwords** app. That attempt failed, and this file records the evidence so
 the next person does not spend a day rediscovering it.
 
 Tested on macOS 26.6.1 against an unlocked app with 1,376 entries.
@@ -72,12 +125,12 @@ drives the old System Preferences pane rather than the standalone app, has been
 unmaintained since 2023, and carries an unresolved "does not work on macOS
 Ventura" issue.
 
-## The conclusion
+## The conclusion at the time
 
 Generating codes locally from a stored seed, which is what this workflow now
 does, sidesteps the problem entirely for verification codes. For passwords
-themselves there is no route: the data is unreachable from the command line and
-the UI will not be driven.
+themselves, the attempts above did not find a working route. They did not test
+the browser-extension bridge now used by apwcli.
 
 If you find a way to make the app register a selection, the copy side was
 written and worked up to exactly that point — see the git history for

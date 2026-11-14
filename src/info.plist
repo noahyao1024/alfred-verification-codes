@@ -83,15 +83,119 @@
 				<false/>
 			</dict>
 		</array>
+		<key>A1B2C3D4-0000-0000-0000-00000000000E</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-00000000000F</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-00000000000F</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000006</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000010</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000011</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000011</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000006</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000012</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000013</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000013</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000006</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000014</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000015</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+		<key>A1B2C3D4-0000-0000-0000-000000000015</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>A1B2C3D4-0000-0000-0000-000000000006</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 	</dict>
 	<key>createdby</key>
 	<string>Noah Yao</string>
 	<key>description</key>
-	<string>Copy a time-based verification code to the clipboard, generated locally from a seed in your login keychain.</string>
+	<string>Copy passwords and verification codes from Apple Passwords; also generate codes from existing local seeds.</string>
 	<key>disabled</key>
 	<false/>
 	<key>name</key>
-	<string>Verification Codes</string>
+	<string>Passwords Quick Copy</string>
 	<key>objects</key>
 	<array>
 		<dict>
@@ -243,7 +347,7 @@
 				<key>text</key>
 				<string>{query}</string>
 				<key>title</key>
-				<string>Verification code</string>
+				<string>Passwords Quick Copy</string>
 			</dict>
 			<key>type</key>
 			<string>alfred.workflow.output.notification</string>
@@ -252,15 +356,244 @@
 			<key>version</key>
 			<integer>1</integer>
 		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>alfredfiltersresults</key>
+				<false/>
+				<key>alfredfiltersresultsmatchmode</key>
+				<integer>0</integer>
+				<key>argumenttrimmode</key>
+				<integer>0</integer>
+				<key>argumenttype</key>
+				<integer>1</integer>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>keyword</key>
+				<string>{var:passwordkeyword}</string>
+				<key>queuedelaycustom</key>
+				<integer>3</integer>
+				<key>queuedelayimmediatelyinitially</key>
+				<true/>
+				<key>queuedelaymode</key>
+				<integer>0</integer>
+				<key>queuemode</key>
+				<integer>1</integer>
+				<key>runningsubtext</key>
+				<string>正在查找账号…</string>
+				<key>script</key>
+				<string>/usr/bin/python3 -I apple-passwords.py --menu "$1"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>subtext</key>
+				<string>搜索网站或别名；回车复制密码</string>
+				<key>title</key>
+				<string>Passwords Quick Copy</string>
+				<key>type</key>
+				<integer>0</integer>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.scriptfilter</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-00000000000E</string>
+			<key>version</key>
+			<integer>3</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>/usr/bin/python3 -I apple-passwords.py --act "$1"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-00000000000F</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>0</integer>
+				<key>keyword</key>
+				<string>{var:appleotpkeyword}</string>
+				<key>subtext</key>
+				<string>输入网站域名；验证码直接来自系统「密码」</string>
+				<key>text</key>
+				<string>复制 Apple Passwords 验证码</string>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000010</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>/usr/bin/python3 -I apple-passwords.py otp "$1"</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000011</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>{var:pairkeyword}</string>
+				<key>subtext</key>
+				<string>下载并校验固定版本；复制时再进行本次配对</string>
+				<key>text</key>
+				<string>准备 Apple Passwords 扩展</string>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000012</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>/usr/bin/python3 -I apple-passwords.py pair</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000013</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>argumenttype</key>
+				<integer>2</integer>
+				<key>keyword</key>
+				<string>{var:lockkeyword}</string>
+				<key>subtext</key>
+				<string>关闭已配对会话，下次复制时重新配对</string>
+				<key>text</key>
+				<string>锁定密码会话</string>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.keyword</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000014</string>
+			<key>version</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>/usr/bin/python3 -I apple-passwords.py lock</string>
+				<key>scriptargtype</key>
+				<integer>1</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>A1B2C3D4-0000-0000-0000-000000000015</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
 	</array>
 	<key>readme</key>
 	<string>## Setup
 
-Nothing to set up. Seeds are kept in your login keychain, never in this workflow.
+Run `pwsetup` once to download and verify the pinned Apple extension.
+Requires Chrome, Brave, Edge, or Chromium. This edition uses bundled MIT bridge code with Python's standard library; apwcli and chauffeur are not runtime dependencies.
 
 Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
+
+* Opening `pass` prewarms the isolated browser without pairing, querying accounts, or reading credentials.
+* `pass github [search text]`: use one keyword path, query `github.com` automatically, and show matching password accounts directly in Alfred.
+* Full domains and URLs use the same input path; exact aliases keep priority.
+* Apple exposes accounts by website. Entries with no Website field cannot be read through its browser helper; an empty bare-keyword search explains this directly.
+* `pass codes github`: show verification-code accounts on demand; Return copies a code directly.
+* Return on a password account copies it and opens a temporary window for manual typing. Command-Return copies its matching code directly. The Copy Verification Code button in the password window also copies the code and closes the window. Codes never open a value window.
+* Option-Return on an account or Set Alias in the password window opens `pass alias save ` in Alfred's own input field. Type a name, check the account preview, and press Return; then use `pass gh-work` to reuse that account.
+* Normal alias results use Command-Return for a code and Option-Return to rename.
+* `pass alias`: list aliases; Command-Return renames, Option-Return removes an alias.
+* `pass alias add gh-work github.com [username]`: bind an alias without copying a secret.
+* `pass setup` prepares the extension; `pass lock` closes the active session.
+* `pass stats` shows recent average and P95 phase timings without account data.
+* `pcode`, `pwsetup`, and `pwlock` remain as compatibility shortcuts.
+
+Account metadata is returned for Alfred's result list. Passwords and codes are never returned to Alfred's debugger or stored in Notification Center. By request, the copied password is displayed in a temporary local window (disable Show password after copy if desired); screen viewers can see it.
+Aliases and five-minute editor drafts store account identifiers only, never a password or OTP seed.
+Clipboard privacy markers request exclusion from history.
+The empty `pass` menu may start the unpaired browser; the first account search starts pairing. Pairing is reused until 30 minutes of inactivity by default, screen lock, sleep/session switch, manual pwlock, or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
+The idle timeout is configurable. A later copy starts a fresh session.
+
+The broker uses a mode-0600 Unix socket and a per-session token in a mode-0700 directory. Passwords never travel back to Alfred over that socket. Browser control still uses anonymous CDP pipes, with no TCP debugging port. These controls do not authenticate Alfred as a unique application or protect against a compromised macOS user account.
+
+The Apple extension is still modified to carry the bridge. A compromised Mac or modified workflow can still access secrets; this is not an independent security audit.
+
+The existing standalone OTP generator needs no extension setup:
 
 Copy a time-based verification code for a stored account via the `otp` keyword.
 
@@ -271,7 +604,7 @@ Add an account by copying its secret or `otpauth://` link, then using the `otpad
 
 The clipboard is cleared after the delay set in the Workflow’s Configuration, but only if it still holds the copied value.
 
-Codes are generated locally from the stored seed (RFC 6238), so this works offline and never opens the Passwords app.
+The `otp` command generates codes locally from the stored seed (RFC 6238), independently of Apple Passwords. Use `pcode` for codes in Apple Passwords.
 </string>
 	<key>uidata</key>
 	<dict>
@@ -317,9 +650,210 @@ Codes are generated locally from the stored seed (RFC 6238), so this works offli
 			<key>ypos</key>
 			<integer>130</integer>
 		</dict>
+		<key>A1B2C3D4-0000-0000-0000-00000000000E</key>
+		<dict>
+			<key>xpos</key>
+			<integer>40</integer>
+			<key>ypos</key>
+			<integer>400</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-00000000000F</key>
+		<dict>
+			<key>xpos</key>
+			<integer>300</integer>
+			<key>ypos</key>
+			<integer>400</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000010</key>
+		<dict>
+			<key>xpos</key>
+			<integer>40</integer>
+			<key>ypos</key>
+			<integer>540</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000011</key>
+		<dict>
+			<key>xpos</key>
+			<integer>300</integer>
+			<key>ypos</key>
+			<integer>540</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000012</key>
+		<dict>
+			<key>xpos</key>
+			<integer>40</integer>
+			<key>ypos</key>
+			<integer>680</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000013</key>
+		<dict>
+			<key>xpos</key>
+			<integer>300</integer>
+			<key>ypos</key>
+			<integer>680</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000014</key>
+		<dict>
+			<key>xpos</key>
+			<integer>40</integer>
+			<key>ypos</key>
+			<integer>820</integer>
+		</dict>
+		<key>A1B2C3D4-0000-0000-0000-000000000015</key>
+		<dict>
+			<key>xpos</key>
+			<integer>300</integer>
+			<key>ypos</key>
+			<integer>820</integer>
+		</dict>
 	</dict>
 	<key>userconfigurationconfig</key>
 	<array>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>pass</string>
+				<key>placeholder</key>
+				<string>pass</string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>统一入口：pass 关键词、pass 别名、pass alias、pass lock。</string>
+			<key>label</key>
+			<string>Main keyword</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>passwordkeyword</string>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<true/>
+				<key>required</key>
+				<false/>
+				<key>text</key>
+				<string>复制密码后显示明文浮窗，方便手打</string>
+			</dict>
+			<key>description</key>
+			<string>只影响密码；验证码始终直接复制，不弹窗。关闭此项时密码也直接复制。</string>
+			<key>label</key>
+			<string>Show password after copy</string>
+			<key>type</key>
+			<string>checkbox</string>
+			<key>variable</key>
+			<string>SHOW_SECRETS</string>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>45</string>
+				<key>placeholder</key>
+				<string>45</string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>密码浮窗多少秒后自动关闭，范围 10–180。锁屏时也会关闭。</string>
+			<key>label</key>
+			<string>Display timeout (seconds)</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>DISPLAY_SECONDS</string>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>pcode</string>
+				<key>placeholder</key>
+				<string>pcode</string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>从系统「密码」复制验证码：pcode 网站域名 [用户名]。</string>
+			<key>label</key>
+			<string>Apple verification code keyword</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>appleotpkeyword</string>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>pwsetup</string>
+				<key>placeholder</key>
+				<string>pwsetup</string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>准备固定版本扩展。首次复制时配对，有效会话内可连续复制。</string>
+			<key>label</key>
+			<string>Setup keyword</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>pairkeyword</string>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>pwlock</string>
+				<key>placeholder</key>
+				<string>pwlock</string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>立即关闭配对会话；下次复制时重新配对。</string>
+			<key>label</key>
+			<string>Lock keyword</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>lockkeyword</string>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>default</key>
+				<string>1800</string>
+				<key>placeholder</key>
+				<string>1800</string>
+				<key>required</key>
+				<true/>
+				<key>trim</key>
+				<true/>
+			</dict>
+			<key>description</key>
+			<string>空闲多少秒后关闭会话，范围 30–1800，默认 1800。锁屏时也会关闭；单次会话最长 30 分钟。</string>
+			<key>label</key>
+			<string>Session idle timeout (seconds)</string>
+			<key>type</key>
+			<string>textfield</string>
+			<key>variable</key>
+			<string>SESSION_IDLE_SECONDS</string>
+		</dict>
 		<dict>
 			<key>config</key>
 			<dict>
@@ -388,15 +922,29 @@ Codes are generated locally from the stored seed (RFC 6238), so this works offli
 	<dict>
 		<key>CLEAR_CLIPBOARD_AFTER</key>
 		<string>45</string>
+		<key>DISPLAY_SECONDS</key>
+		<string>45</string>
+		<key>SESSION_IDLE_SECONDS</key>
+		<string>1800</string>
+		<key>SHOW_SECRETS</key>
+		<string>1</string>
+		<key>appleotpkeyword</key>
+		<string>pcode</string>
+		<key>lockkeyword</key>
+		<string>pwlock</string>
 		<key>otpaddkeyword</key>
 		<string>otpadd</string>
 		<key>otpkeyword</key>
 		<string>otp</string>
+		<key>pairkeyword</key>
+		<string>pwsetup</string>
+		<key>passwordkeyword</key>
+		<string>pass</string>
 	</dict>
 	<key>variablesdontexport</key>
 	<array/>
 	<key>version</key>
-	<string>0.4.0</string>
+	<string>0.8.10</string>
 	<key>webaddress</key>
 	<string>https://github.com/noahyao1024/alfred-verification-codes</string>
 </dict>

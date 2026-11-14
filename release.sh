@@ -7,9 +7,9 @@ cd "$(dirname "$0")"
 : "${GH_USER:?Set GH_USER to your GitHub username}"
 : "${AUTHOR:?Set AUTHOR to your name}"
 REPO="${REPO:-alfred-verification-codes}"
-VERSION="${VERSION:-0.3.0}"
-NAME="Verification Codes"
-DESCRIPTION="Alfred workflow to copy time-based verification codes, generated locally from seeds in your login keychain"
+VERSION="${VERSION:-0.8.10}"
+NAME="Passwords Quick Copy"
+DESCRIPTION="Alfred workflow to copy Apple Passwords passwords and verification codes"
 
 echo "Building $VERSION with GH_USER=$GH_USER AUTHOR=$AUTHOR"
 # VERSION must be exported: build_plist.py reads it, and without it the bundle
@@ -32,13 +32,19 @@ git push -u origin main
 
 gh release create "v$VERSION" "dist/$NAME.alfredworkflow" \
   --title "v$VERSION" \
-  --notes "Copy a time-based verification code to your clipboard via Alfred.
+  --notes "Copy Apple Passwords passwords and verification codes via Alfred.
 
-Codes are generated locally from a seed held in your login keychain, so this
-works offline, opens nothing, and needs no Accessibility permission.
+Use pass setup to prepare the pinned official extension. No apwcli install is needed.
+Opening pass prewarms the isolated browser without pairing or reading credentials.
+Use pass with a website or alias, select the account, and copy the password first.
+The native window can display the password for manual typing. OTP copies never open a value window.
+Command-Return copies the matching OTP directly; Option-Return edits an alias in Alfred's input field.
+The Set Alias button also opens Alfred; pass alias lists and manages saved aliases.
+Pairing is reused until 30 minutes idle, screen lock, pwlock, or 30 minutes total.
+Browser control uses anonymous pipes with no TCP debugging listener.
 
-Download the .alfredworkflow file below and double-click to install, then store
-a seed with: python3 src/totp.py --store \"you@example.com\""
+The existing otp and otpadd local-seed commands remain available.
+Download the .alfredworkflow file below and double-click to install."
 
 echo
 echo "Done: https://github.com/$GH_USER/$REPO"

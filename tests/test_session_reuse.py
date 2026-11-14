@@ -1,0 +1,408 @@
+"""Session reuse and local IPC tests use synthetic credentials only."""
+
+import json
+import os
+from pathlib import Path
+import socket
+import stat
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from passwords_bridge import broker, client
+from passwords_bridge.browser import BridgeError
+from passwords_bridge.session import CredentialLookupError
+
+
+def request(mode='password', domain='example.com', username='alice', idle=300):
+    return {'op': 'copy', 'mode': mode, 'domain': domain, 'username': username,
+            'clear_after': 0, 'idle_seconds': idle}
+
+
+class Clock:
+    def __init__(self): self.now = 100.0
+    def __call__(self): return self.now
+    def advance(self, seconds): self.now += seconds
+
+
+class Monitor:
+    locked = False
+    def blocked(self): return self.locked
+    def close(self): pass
+
+
+class FakeSession:
+    instances = None
+    def __init__(self, domain, username, mode, guard=None):
+        self.guard, self.paired, self.pairs, self.closed = guard, False, 0, False
+        self.scope = None
+        self.on_read = None
+        self.on_pair = None
+        self.lookup_error = False
+        self.states = 0
+        if self.instances is not None: self.instances.append(self)
+    def __enter__(self): return self
+    def __exit__(self, *args): self.closed = True
+    def set_scope(self, domain, username, mode): self.scope = (domain, username, mode)
+    def clear_scope(self): self.scope = None
+    def state(self):
+        self.states += 1
+        return {'paired': self.paired}
+    def pair(self):
+        if self.on_pair: self.on_pair()
+        self.pairs += 1
+        self.paired = True
+    def read(self, mode):
+        if self.on_read: self.on_read()
+        if self.lookup_error: raise CredentialLookupError('refine username')
+        return 'FAKE-SECRET-' + mode
+
+
+class ReuseTests(unittest.TestCase):
+    def setUp(self):
+        self.clock, self.monitor, self.copies = Clock(), Monitor(), []
+        self.instances = []
+        self.factory = type('FixtureSession', (FakeSession,), {'instances': self.instances})
+        self.manager = broker.SessionManager(self.monitor, self.factory,
+            lambda secret, seconds: self.copies.append(secret), self.clock, self.clock)
+    def tearDown(self): self.manager.close_session()
+
+    def test_password_then_otp_pair_once_and_clear_scope(self):
+        self.manager.copy(request())
+        owned = self.instances[0]
+        self.assertIsNone(owned.scope)
+        self.clock.advance(1)
+        result = self.manager.copy(request('otp', 'another.example', 'bob'))
+        self.assertEqual(len(self.instances), 1)
+        self.assertEqual(owned.pairs, 1)
+        self.assertIsNone(owned.scope)
+        self.assertNotIn('FAKE-SECRET', repr(result))
+        self.assertEqual(len(self.copies), 2)
+
+    def test_empty_or_ambiguous_lookup_keeps_pairing_for_retry(self):
+        self.manager.copy(request())
+        owned = self.instances[0]
+        owned.lookup_error = True
+        with self.assertRaises(CredentialLookupError): self.manager.copy(request(username=''))
+        self.assertFalse(owned.closed)
+        self.assertIsNone(owned.scope)
+        owned.lookup_error = False
+        self.manager.copy(request(username='bob'))
+        self.assertEqual(owned.pairs, 1)
+
+    def test_idle_expiry_closes_without_keepalive_extending_it(self):
+        self.manager.copy(request(idle=30))
+        for _ in range(5):
+            self.clock.advance(5)
+            self.manager.tick()
+        self.clock.advance(5)
+        with self.assertRaises(broker.SessionExpired): self.manager.tick()
+        self.assertTrue(self.instances[0].closed)
+        self.assertIsNone(self.manager.session)
+
+    def test_valid_copy_refreshes_idle_deadline(self):
+        self.manager.copy(request(idle=30))
+        for _ in range(5):
+            self.clock.advance(5); self.manager.tick()
+        self.manager.copy(request('otp', idle=30))
+        for _ in range(5):
+            self.clock.advance(5); self.manager.tick()
+        self.assertFalse(self.instances[0].closed)
+        self.assertEqual(self.instances[0].pairs, 1)
+
+    def test_maximum_lifetime_wins_despite_repeated_use(self):
+        self.manager.maximum = 30
+        self.manager.copy(request())
+        for _ in range(5):
+            self.clock.advance(5); self.manager.copy(request())
+        self.clock.advance(5)
+        with self.assertRaises(broker.SessionExpired): self.manager.tick()
+        self.assertTrue(self.instances[0].closed)
+
+    def test_repeated_copy_uses_session_cache_and_clears_on_close(self):
+        reads = []
+        self.instances_reads = reads
+        self.manager.copy(request())
+        owned = self.instances[0]
+        owned.on_read = lambda: reads.append('read')
+        self.manager.copy(request())
+        self.assertEqual(reads, [])  # cached password avoids a second Touch ID read
+        self.assertEqual(len(self.copies), 2)
+        self.manager.close_session()
+        self.assertEqual(self.manager.copy_cache, {})
+
+    def test_prewarm_starts_browser_without_pairing_or_reading(self):
+        result = self.manager.warm({'op': 'warm', 'idle_seconds': 300})
+        owned = self.instances[0]
+        self.assertTrue(result['ok'])
+        self.assertEqual(owned.pairs, 0)
+        self.assertEqual(self.copies, [])
+        self.assertIsNone(owned.scope)
+        self.assertTrue(self.manager.prewarmed_unpaired)
+        self.clock.advance(3)
+        self.manager.tick()
+        self.assertIs(self.manager.session, owned)
+        self.manager.copy(request(idle=30))
+        self.assertIs(self.manager.session, owned)
+        self.assertEqual(owned.pairs, 1)
+        self.assertFalse(self.manager.prewarmed_unpaired)
+        activity = self.manager.last_activity
+        self.clock.advance(10)
+        self.manager.warm({'op': 'warm', 'idle_seconds': 1800})
+        self.assertEqual(self.manager.last_activity, activity)
+        self.assertEqual(self.manager.idle, 30)
+
+    def test_lock_between_read_and_clipboard_prevents_delivery(self):
+        self.manager.copy(request())
+        self.copies.clear()
+        self.instances[0].on_read = lambda: setattr(self.monitor, 'locked', True)
+        with self.assertRaises(broker.SessionExpired): self.manager.copy(request(username='bob'))
+        self.assertEqual(self.copies, [])
+        self.assertTrue(self.instances[0].closed)
+
+    def test_manual_lock_interrupts_read(self):
+        self.manager.copy(request())
+        self.copies.clear()
+        self.instances[0].on_read = self.manager.cancelled.set
+        with self.assertRaises(broker.SessionExpired): self.manager.copy(request(username='bob'))
+        self.assertEqual(self.copies, [])
+        self.assertTrue(self.instances[0].closed)
+
+    def test_apple_invalidates_pairing_next_copy_pairs_again(self):
+        self.manager.copy(request())
+        self.instances[0].paired = False
+        self.clock.advance(2)
+        self.manager.tick()
+        self.assertTrue(self.instances[0].closed)
+        self.manager.copy(request('otp'))
+        self.assertEqual(len(self.instances), 2)
+        self.assertEqual(self.instances[1].pairs, 1)
+
+    def test_sleep_or_clock_gap_closes_session(self):
+        self.manager.copy(request())
+        self.clock.advance(20)
+        with self.assertRaises(broker.SessionExpired): self.manager.tick()
+        self.assertTrue(self.instances[0].closed)
+
+    def test_idle_expiry_does_not_interrupt_active_pairing(self):
+        manager = self.manager
+        class SlowPair(self.factory):
+            def pair(self):
+                for _ in range(40):
+                    manager.clock.advance(1); manager.guard()
+                super().pair()
+        manager.factory = SlowPair
+        manager.copy(request(idle=30))
+        self.assertEqual(len(self.copies), 1)
+
+    def test_invalid_request_never_creates_session(self):
+        for changed in ({'mode': 'save'}, {'domain': '--eval'}, {'idle_seconds': 0}, {'clear_after': True}, {'script': 'bad'}):
+            bad = dict(request(), **changed)
+            with self.assertRaises(BridgeError): self.manager.copy(bad)
+        self.assertEqual(self.instances, [])
+
+    def test_client_query_cancellation_does_not_expire_the_broker(self):
+        self.manager.request_cancelled.set()
+        with self.assertRaises(broker.RequestCancelled):
+            self.manager.guard()
+        self.assertFalse(self.manager.expired)
+        self.manager.request_cancelled.clear()
+        self.manager.guard()
+
+    def test_stale_prefix_finishes_browser_startup_for_latest_query(self):
+        manager = self.manager
+        class CancelDuringStartup(self.factory):
+            def __enter__(self):
+                manager.clock.advance(7)
+                manager.request_cancelled.set()
+                self.guard()  # cancellation is deferred only during startup
+                return self
+            def entries(self, mode):
+                return []
+        manager.factory = CancelDuringStartup
+        catalog = {'op': 'catalog', 'mode': 'password', 'domain': 'github.com',
+                   'idle_seconds': 300}
+        with self.assertRaises(broker.WarmSessionRequestCancelled):
+            manager.catalog(catalog)
+        owned = manager.session
+        self.assertIsNotNone(owned)
+        self.assertFalse(owned.closed)
+        self.assertIsNone(owned.scope)
+        self.assertEqual(owned.pairs, 0)
+        manager.request_cancelled.clear()
+        manager.tick()  # the service loop must not reap the just-warmed browser
+        self.assertIs(manager.session, owned)
+        self.assertTrue(manager.catalog(catalog)['ok'])
+        self.assertIs(manager.session, owned)
+        self.assertEqual(owned.pairs, 1)
+
+
+class ClientDispatchTests(unittest.TestCase):
+    def test_dispatch_waits_until_prewarm_releases_operation_slot(self):
+        operation = request()
+        replies = [
+            ({'ok': False, 'message': 'warming', 'warming': True}, 'token-a'),
+            ({'ok': True, 'message': 'copied'}, 'token-a'),
+        ]
+        with patch.object(client, 'rpc', side_effect=replies) as rpc, \
+             patch.object(client.time, 'sleep') as pause:
+            self.assertEqual(client.dispatch(operation), replies[1][0])
+        self.assertEqual(rpc.call_args_list[0].args, (operation,))
+        self.assertEqual(rpc.call_args_list[1].args, (operation,))
+        self.assertEqual(rpc.call_args_list[0].kwargs,
+                         {'expected_token': None, 'return_token': True})
+        self.assertEqual(rpc.call_args_list[1].kwargs,
+                         {'expected_token': 'token-a', 'return_token': True})
+        pause.assert_called_once_with(0.1)
+
+    def test_dispatch_does_not_restart_after_prewarm_is_locked(self):
+        operation = request()
+        for changed, message in ((client.Unavailable(), '预热会话已关闭'),
+                                 (client.SessionChanged(), '预热会话已被锁定或替换')):
+            with self.subTest(message=message), patch.object(client, 'rpc', side_effect=[
+                    ({'ok': False, 'message': 'warming', 'warming': True}, 'token-a'),
+                    changed,
+                 ]), patch.object(client.time, 'sleep'), \
+                 patch.object(client.subprocess, 'Popen') as launch, \
+                 self.assertRaisesRegex(BridgeError, message):
+                client.dispatch(operation)
+            launch.assert_not_called()
+
+
+@unittest.skipUnless(sys.platform == 'darwin', 'Darwin peer credentials required')
+class BrokerIPCTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix='pws-ipc-')
+        self.root = Path(self.directory.name)
+        self.ready, self.copies, self.instances = threading.Event(), [], []
+        self.factory = type('FixtureSession', (FakeSession,), {'instances': self.instances})
+        self.thread = threading.Thread(target=broker.serve, kwargs={
+            'root': self.root, 'monitor_factory': Monitor, 'session_factory': self.factory,
+            'copier': lambda value, seconds: self.copies.append(value), 'ready': self.ready})
+        self.thread.start()
+        self.assertTrue(self.ready.wait(5))
+    def tearDown(self):
+        try:
+            if self.thread.is_alive():
+                try: client.rpc({'op': 'stop'}, self.root)
+                except client.Unavailable: pass  # listener closes before teardown finishes
+        finally:
+            self.thread.join(timeout=5)
+            self.assertFalse(self.thread.is_alive())
+            self.directory.cleanup()
+
+    def test_real_socket_reuse_permissions_and_no_plaintext_reply(self):
+        first = client.rpc(request(), self.root)
+        second = client.rpc(request('otp'), self.root)
+        self.assertTrue(first['ok'] and second['ok'])
+        self.assertEqual(len(self.instances), 1)
+        self.assertEqual(self.instances[0].pairs, 1)
+        self.assertNotIn('FAKE-SECRET', json.dumps([first, second]))
+        self.assertNotIn('FAKE-SECRET', (self.root / 'session.log').read_text())
+        for name in ('session.sock', 'session.json'):
+            self.assertEqual(stat.S_IMODE((self.root / name).stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(self.root.stat().st_mode), 0o700)
+
+    def test_prewarm_rpc_opens_no_credential_and_reuses_browser(self):
+        warmed = client.rpc({'op': 'warm', 'idle_seconds': 300}, self.root)
+        self.assertTrue(warmed['ok'])
+        self.assertEqual(len(self.instances), 1)
+        self.assertEqual(self.instances[0].pairs, 0)
+        self.assertEqual(self.copies, [])
+        self.assertTrue(client.metadata(self.root)['prewarm_v1'])
+        self.assertTrue(client.metadata(self.root)['pair_rerun_v1'])
+        copied = client.rpc(request(), self.root)
+        self.assertTrue(copied['ok'])
+        self.assertEqual(len(self.instances), 1)
+        self.assertEqual(self.instances[0].pairs, 1)
+
+    def test_foreground_request_is_told_to_retry_during_cold_prewarm(self):
+        entered, release = threading.Event(), threading.Event()
+        original = self.factory.__enter__
+        def slow_start(instance):
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError('prewarm was not released')
+            return original(instance)
+        warmed = []
+        with patch.object(self.factory, '__enter__', slow_start):
+            caller = threading.Thread(target=lambda: warmed.append(
+                client.rpc({'op': 'warm', 'idle_seconds': 300}, self.root)))
+            caller.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                foreground = client.rpc(request(), self.root)
+                self.assertFalse(foreground['ok'])
+                self.assertTrue(foreground['warming'])
+                self.assertEqual(self.copies, [])
+            finally:
+                release.set()
+                caller.join(timeout=5)
+        self.assertFalse(caller.is_alive())
+        self.assertTrue(warmed[0]['ok'])
+
+    def test_wrong_token_and_foreign_uid_rejected(self):
+        info = client.metadata(self.root)
+        packet = dict(request(), v=broker.PROTOCOL, token='0' * 64)
+        with socket.socket(socket.AF_UNIX) as connection:
+            connection.connect(str(self.root / 'session.sock'))
+            connection.sendall(json.dumps(packet).encode() + b'\n')
+            response = json.loads(connection.recv(4096))
+        self.assertFalse(response['ok'])
+        self.assertEqual(self.copies, [])
+        with self.assertRaises(BridgeError):
+            broker.authorize(dict(request(), v=broker.PROTOCOL, token=info['token']), info['token'], os.geteuid() + 1)
+
+    def test_closed_script_filter_socket_is_detected(self):
+        first, second = socket.socketpair()
+        try:
+            self.assertFalse(broker.peer_disconnected(first))
+            second.close()
+            self.assertTrue(broker.peer_disconnected(first))
+        finally:
+            first.close()
+
+    def test_no_raw_read_or_eval_endpoint(self):
+        for op in ('read', 'eval', 'save'):
+            response = client.rpc({'op': op}, self.root)
+            self.assertFalse(response['ok'])
+        self.assertEqual(self.copies, [])
+
+    def test_manual_stop_removes_runtime_metadata(self):
+        client.rpc(request(), self.root)
+        client.rpc({'op': 'stop'}, self.root)
+        self.thread.join(timeout=5)
+        self.assertFalse(self.thread.is_alive())
+        self.assertTrue(self.instances[0].closed)
+        self.assertFalse((self.root / 'session.sock').exists())
+        self.assertFalse((self.root / 'session.json').exists())
+
+    def test_stop_is_accepted_during_an_inflight_copy(self):
+        client.rpc(request(), self.root)
+        entered = threading.Event()
+        def wait_until_cancelled():
+            entered.set()
+            deadline = time.monotonic() + 4
+            while time.monotonic() < deadline:
+                self.instances[0].guard()
+                time.sleep(.02)
+            raise AssertionError('copy was not cancelled')
+        self.instances[0].on_read = wait_until_cancelled
+        results = []
+        caller = threading.Thread(target=lambda: results.append(client.rpc(request(username='bob'), self.root)))
+        caller.start()
+        try:
+            self.assertTrue(entered.wait(2))
+            self.assertTrue(client.rpc({'op': 'stop'}, self.root)['ok'])
+        finally:
+            caller.join(timeout=5)
+        self.assertFalse(caller.is_alive())
+        self.assertFalse(results[0]['ok'])
+        self.assertEqual(len(self.copies), 1)
+
+
+if __name__ == '__main__': unittest.main()

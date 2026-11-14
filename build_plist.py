@@ -4,13 +4,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # Set these before publishing. GH_USER is used for the bundle ID, which must be
 # unique and is conventionally reverse-domain based on the author.
-GH_USER = os.environ.get("GH_USER", "YOUR-GITHUB-USERNAME")
-AUTHOR = os.environ.get("AUTHOR", "Your Name")
+GH_USER = os.environ.get("GH_USER", "noahyao1024")
+AUTHOR = os.environ.get("AUTHOR", "Noah Yao")
 REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.3.0")
+VERSION = os.environ.get("VERSION", "0.8.10")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -19,6 +19,14 @@ S_OTP = "A1B2C3D4-0000-0000-0000-00000000000A"
 KW_ADD = "A1B2C3D4-0000-0000-0000-00000000000B"
 S_ADD = "A1B2C3D4-0000-0000-0000-00000000000C"
 S_RM = "A1B2C3D4-0000-0000-0000-00000000000D"
+KW_PASSWORD = "A1B2C3D4-0000-0000-0000-00000000000E"
+S_PASSWORD = "A1B2C3D4-0000-0000-0000-00000000000F"
+KW_APP_OTP = "A1B2C3D4-0000-0000-0000-000000000010"
+S_APP_OTP = "A1B2C3D4-0000-0000-0000-000000000011"
+KW_PAIR = "A1B2C3D4-0000-0000-0000-000000000012"
+S_PAIR = "A1B2C3D4-0000-0000-0000-000000000013"
+KW_LOCK = "A1B2C3D4-0000-0000-0000-000000000014"
+S_LOCK = "A1B2C3D4-0000-0000-0000-000000000015"
 
 OPT = 524288
 
@@ -80,11 +88,29 @@ objects = [
     {
         "config": {"lastpathcomponent": False, "onlyshowifquerypopulated": True,
                    "removeextension": False, "text": "{query}",
-                   "title": "Verification code"},
+                   "title": "Passwords Quick Copy"},
         "type": "alfred.workflow.output.notification", "uid": NOTIFY,
         "version": 1,
     },
+    scriptfilter(KW_PASSWORD, "{var:passwordkeyword}", "Passwords Quick Copy",
+                 "搜索网站或别名；回车复制密码",
+                 '/usr/bin/python3 -I apple-passwords.py --menu "$1"'),
+    runscript(S_PASSWORD, '/usr/bin/python3 -I apple-passwords.py --act "$1"'),
+    keyword(KW_APP_OTP, "{var:appleotpkeyword}", "复制 Apple Passwords 验证码",
+            "输入网站域名；验证码直接来自系统「密码」", argumenttype=0),
+    runscript(S_APP_OTP, '/usr/bin/python3 -I apple-passwords.py otp "$1"'),
+    keyword(KW_PAIR, "{var:pairkeyword}", "准备 Apple Passwords 扩展",
+            "下载并校验固定版本；复制时再进行本次配对", argumenttype=2),
+    runscript(S_PAIR, '/usr/bin/python3 -I apple-passwords.py pair'),
+    keyword(KW_LOCK, "{var:lockkeyword}", "锁定密码会话",
+            "关闭已配对会话，下次复制时重新配对", argumenttype=2),
+    runscript(S_LOCK, '/usr/bin/python3 -I apple-passwords.py lock'),
 ]
+
+for obj in objects:
+    if obj['uid'] == KW_PASSWORD:
+        obj['config'].update({'scriptargtype': 1, 'alfredfiltersresults': False,
+                              'runningsubtext': '正在查找账号…'})
 
 connections = {
     SF_OTP: [conn(S_OTP, 0, "copy code"),
@@ -93,6 +119,14 @@ connections = {
     S_RM: [conn(NOTIFY)],
     KW_ADD: [conn(S_ADD)],
     S_ADD: [conn(NOTIFY)],
+    KW_PASSWORD: [conn(S_PASSWORD)],
+    S_PASSWORD: [conn(NOTIFY)],
+    KW_APP_OTP: [conn(S_APP_OTP)],
+    S_APP_OTP: [conn(NOTIFY)],
+    KW_PAIR: [conn(S_PAIR)],
+    S_PAIR: [conn(NOTIFY)],
+    KW_LOCK: [conn(S_LOCK)],
+    S_LOCK: [conn(NOTIFY)],
 }
 
 uidata = {
@@ -102,10 +136,53 @@ uidata = {
     KW_ADD: {"xpos": 40, "ypos": 260},
     S_ADD: {"xpos": 300, "ypos": 260},
     NOTIFY: {"xpos": 560, "ypos": 140},
+    KW_PASSWORD: {"xpos": 40, "ypos": 400},
+    S_PASSWORD: {"xpos": 300, "ypos": 400},
+    KW_APP_OTP: {"xpos": 40, "ypos": 540},
+    S_APP_OTP: {"xpos": 300, "ypos": 540},
+    KW_PAIR: {"xpos": 40, "ypos": 680},
+    S_PAIR: {"xpos": 300, "ypos": 680},
+    KW_LOCK: {"xpos": 40, "ypos": 820},
+    S_LOCK: {"xpos": 300, "ypos": 820},
 }
 
 # Gallery requires configuration to be exposed as Workflow Configuration.
 userconfig = [
+    {
+        "config": {"default": "pass", "placeholder": "pass", "required": True, "trim": True},
+        "description": "统一入口：pass 关键词、pass 别名、pass alias、pass lock。",
+        "label": "Main keyword", "type": "textfield", "variable": "passwordkeyword",
+    },
+    {
+        "config": {"default": True, "required": False, "text": "复制密码后显示明文浮窗，方便手打"},
+        "description": "只影响密码；验证码始终直接复制，不弹窗。关闭此项时密码也直接复制。",
+        "label": "Show password after copy", "type": "checkbox", "variable": "SHOW_SECRETS",
+    },
+    {
+        "config": {"default": "45", "placeholder": "45", "required": True, "trim": True},
+        "description": "密码浮窗多少秒后自动关闭，范围 10–180。锁屏时也会关闭。",
+        "label": "Display timeout (seconds)", "type": "textfield", "variable": "DISPLAY_SECONDS",
+    },
+    {
+        "config": {"default": "pcode", "placeholder": "pcode", "required": True, "trim": True},
+        "description": "从系统「密码」复制验证码：pcode 网站域名 [用户名]。",
+        "label": "Apple verification code keyword", "type": "textfield", "variable": "appleotpkeyword",
+    },
+    {
+        "config": {"default": "pwsetup", "placeholder": "pwsetup", "required": True, "trim": True},
+        "description": "准备固定版本扩展。首次复制时配对，有效会话内可连续复制。",
+        "label": "Setup keyword", "type": "textfield", "variable": "pairkeyword",
+    },
+    {
+        "config": {"default": "pwlock", "placeholder": "pwlock", "required": True, "trim": True},
+        "description": "立即关闭配对会话；下次复制时重新配对。",
+        "label": "Lock keyword", "type": "textfield", "variable": "lockkeyword",
+    },
+    {
+        "config": {"default": "1800", "placeholder": "1800", "required": True, "trim": True},
+        "description": "空闲多少秒后关闭会话，范围 30–1800，默认 1800。锁屏时也会关闭；单次会话最长 30 分钟。",
+        "label": "Session idle timeout (seconds)", "type": "textfield", "variable": "SESSION_IDLE_SECONDS",
+    },
     {
         "config": {"default": "otp", "placeholder": "otp",
                    "required": True, "trim": True},
@@ -130,12 +207,53 @@ userconfig = [
 
 readme = """## Setup
 
-Nothing to set up. Seeds are kept in your login keychain, never in this \
-workflow.
+Run `pwsetup` once to download and verify the pinned Apple extension.
+Requires Chrome, Brave, Edge, or Chromium. This edition uses bundled MIT \
+bridge code with Python's standard library; apwcli and chauffeur are not runtime dependencies.
 
 Requires macOS Sequoia or later. No Accessibility permission is needed.
 
 ## Usage
+
+* Opening `pass` prewarms the isolated browser without pairing, querying accounts, or reading credentials.
+* `pass github [search text]`: use one keyword path, query `github.com` automatically, and show matching password accounts directly in Alfred.
+* Full domains and URLs use the same input path; exact aliases keep priority.
+* Apple exposes accounts by website. Entries with no Website field cannot be read through its browser helper; an empty bare-keyword search explains this directly.
+* `pass codes github`: show verification-code accounts on demand; Return copies a code directly.
+* Return on a password account copies it and opens a temporary window for manual typing. \
+Command-Return copies its matching code directly. The Copy Verification Code button in the password window \
+also copies the code and closes the window. Codes never open a value window.
+* Option-Return on an account or Set Alias in the password window opens `pass alias save ` in Alfred's own input field. \
+Type a name, check the account preview, and press Return; then use `pass gh-work` to reuse that account.
+* Normal alias results use Command-Return for a code and Option-Return to rename.
+* `pass alias`: list aliases; Command-Return renames, Option-Return removes an alias.
+* `pass alias add gh-work github.com [username]`: bind an alias without copying a secret.
+* `pass setup` prepares the extension; `pass lock` closes the active session.
+* `pass stats` shows recent average and P95 phase timings without account data.
+* `pcode`, `pwsetup`, and `pwlock` remain as compatibility shortcuts.
+
+Account metadata is returned for Alfred's result list. Passwords and codes are \
+never returned to Alfred's debugger or stored in \
+Notification Center. By request, the copied password is displayed in a temporary \
+local window (disable Show password after copy if desired); screen viewers can see it.
+Aliases and five-minute editor drafts store account identifiers only, never a password or OTP seed.
+Clipboard privacy markers request exclusion from history.
+The empty `pass` menu may start the unpaired browser; the first account search \
+starts pairing. Pairing is reused until 30 minutes \
+of inactivity by default, screen lock, sleep/session switch, manual pwlock, \
+or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
+The idle timeout is configurable. A later copy starts a fresh session.
+
+The broker uses a mode-0600 Unix socket and a per-session token in a \
+mode-0700 directory. Passwords never travel back to Alfred over that socket. \
+Browser control still uses anonymous CDP pipes, with no TCP debugging port. \
+These controls do not authenticate Alfred as a unique application or protect \
+against a compromised macOS user account.
+
+The Apple extension is still modified to carry the bridge. A compromised Mac \
+or modified workflow can still access secrets; this is not an independent security audit.
+
+The existing standalone OTP generator needs no extension setup:
 
 Copy a time-based verification code for a stored account via the `otp` keyword.
 
@@ -149,8 +267,8 @@ link. Your clipboard is cleared once the seed is stored.
 The clipboard is cleared after the delay set in the Workflow’s Configuration, \
 but only if it still holds the copied value.
 
-Codes are generated locally from the stored seed (RFC 6238), so this works \
-offline and never opens the Passwords app.
+The `otp` command generates codes locally from the stored seed (RFC 6238), \
+independently of Apple Passwords. Use `pcode` for codes in Apple Passwords.
 """
 
 wf = {
@@ -159,19 +277,22 @@ wf = {
     "category": "Productivity",
     "connections": connections,
     "createdby": AUTHOR,
-    "description": "Copy a time-based verification code to the clipboard, "
-                   "generated locally from a seed in your login keychain.",
+    "description": "Copy passwords and verification codes from Apple Passwords; "
+                   "also generate codes from existing local seeds.",
     "disabled": False,
     # The name Alfred shows. The bundle ID below deliberately still says
     # passwordsquickcopy: it is invisible to users, and changing it would make
     # Alfred treat this as a brand new workflow, leaving the old one installed
     # alongside it with its own configuration.
-    "name": "Verification Codes",
+    "name": "Passwords Quick Copy",
     "objects": objects,
     "readme": readme,
     "uidata": uidata,
     "userconfigurationconfig": userconfig,
     "variables": {"otpkeyword": "otp", "otpaddkeyword": "otpadd",
+                  "passwordkeyword": "pass", "appleotpkeyword": "pcode",
+                  "pairkeyword": "pwsetup", "lockkeyword": "pwlock", "SESSION_IDLE_SECONDS": "1800",
+                  "SHOW_SECRETS": "1", "DISPLAY_SECONDS": "45",
                   "CLEAR_CLIPBOARD_AFTER": "45"},
     "variablesdontexport": [],
     "version": VERSION,
