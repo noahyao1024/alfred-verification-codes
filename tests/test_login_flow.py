@@ -187,7 +187,9 @@ class FlowTests(unittest.TestCase):
         second = self.manager.catalog(catalog_request())
         self.assertEqual(first['mode'], 'password')
         self.assertEqual(len(first['accounts']), 2)
-        self.assertEqual(first, second)
+        self.assertTrue(first['paired_now'])
+        self.assertFalse(second['paired_now'])
+        self.assertEqual(first | {'paired_now': False}, second)
         self.assertEqual(self.instances[0].password_metadata_queries, 1)
         self.assertEqual(self.instances[0].otp_metadata_queries, 0)
         self.assertNotIn('SECRET-', json.dumps(first))
@@ -198,7 +200,9 @@ class FlowTests(unittest.TestCase):
         result = self.manager.catalog(catalog_request())
         cached = self.manager.catalog(catalog_request())
         self.assertEqual(result['mode'], 'otp')
-        self.assertEqual(result, cached)
+        self.assertTrue(result['paired_now'])
+        self.assertFalse(cached['paired_now'])
+        self.assertEqual(result | {'paired_now': False}, cached)
         self.assertEqual(len(result['accounts']), 1)
         self.assertEqual(self.instances[0].password_metadata_queries, 1)
         self.assertEqual(self.instances[0].otp_metadata_queries, 1)
@@ -210,9 +214,42 @@ class FlowTests(unittest.TestCase):
         result = self.manager.catalog(catalog_request())
         self.assertEqual(result, {
             'ok': True, 'mode': 'password', 'accounts': [], 'fallback': False,
+            'paired_now': True,
         })
         self.assertEqual(self.instances[0].password_metadata_queries, 1)
         self.assertEqual(self.instances[0].otp_metadata_queries, 1)
+
+    def test_catalog_finishes_after_alfred_disconnects_during_pairing(self):
+        manager = self.manager
+        class CancelDuringPair(self.factory):
+            def pair(self):
+                manager.request_cancelled.set()
+                self.guard()
+                super().pair()
+        manager.factory = CancelDuringPair
+        result = manager.catalog(catalog_request())
+        owned = self.instances[0]
+        self.assertTrue(result['paired_now'])
+        self.assertIs(manager.session, owned)
+        self.assertFalse(owned.closed)
+        self.assertEqual(owned.password_metadata_queries, 1)
+        self.assertFalse(manager.catalog_pairing_committed)
+
+    def test_cancelled_paired_catalog_preserves_session_for_next_query(self):
+        self.manager.catalog(catalog_request())
+        owned = self.instances[0]
+        self.manager.catalog_cache.clear()
+        original_entries = owned.entries
+        def cancel_during_entries(kind):
+            self.manager.request_cancelled.set()
+            self.manager.guard()
+            return original_entries(kind)
+        owned.entries = cancel_during_entries
+        with self.assertRaises(broker.RequestCancelled):
+            self.manager.catalog(catalog_request(domain='other.example'))
+        self.assertIs(self.manager.session, owned)
+        self.assertFalse(owned.closed)
+        self.assertFalse(self.manager.catalog_pairing_committed)
 
     def test_alfred_selection_skips_picker_and_metadata_scans(self):
         identity = account_list(PASSWORDS, 'password', 'example.com', metadata_only=True)[1].identity

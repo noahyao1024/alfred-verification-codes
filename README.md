@@ -19,7 +19,9 @@ by macOS into the local dialog; subsequent password and OTP copies reuse that
 session while it remains valid. By default, it stays warm for the 30-minute
 maximum lifetime. Screen lock, sleep/user switching, or `pwlock` closes it
 earlier. Apple can invalidate its pairing independently, in which case the next
-operation pairs again. This replaces 0.6's pairing on every copy.
+operation pairs again. This private workflow process is separate from ordinary
+Chrome windows, so leaving a normal Chrome window open does not control its
+lifetime. This replaces 0.6's pairing on every copy.
 
 This requires Alfred Powerpack and a supported Chromium browser (Chrome, Brave,
 Edge, or Chromium) and Apple's browser helper. Setup accepts only the pinned
@@ -207,6 +209,11 @@ this shipped once with a generator that had never been verified.
 count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
+
+Version 0.8.10 lets a metadata-only website search finish if Alfred replaces its
+Script Filter connection while the pairing dialog has focus. After fresh pairing,
+the workflow reopens Alfred on the original query and requests one bounded rerun;
+the cached rerun does not pair or loop again.
 
 Version 0.8.9 keeps a completely empty password lookup in password mode instead
 of misreporting it as an empty verification-code search. A bare keyword with no

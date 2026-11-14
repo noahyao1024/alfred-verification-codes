@@ -1,10 +1,10 @@
-# Security scope of version 0.8.9
+# Security scope of version 0.8.10
 
 This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.8.9 behavior |
+| Boundary | Version 0.8.10 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
 | Session lifetime | 30 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |

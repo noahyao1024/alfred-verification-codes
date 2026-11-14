@@ -127,19 +127,34 @@ def direct_menu(query, store=None):
         return response
     if (result.get('mode') not in ('password', 'otp') or
             not isinstance(result.get('accounts'), list) or
-            type(result.get('fallback')) is not bool):
+            type(result.get('fallback')) is not bool or
+            ('paired_now' in result and type(result['paired_now']) is not bool)):
         raise BridgeError('账号列表响应格式无效。')
+    paired_now = result.get('paired_now', False)
     bare_keyword = query.strip()
     if (not result['accounts'] and result['mode'] == 'password' and
             bare_keyword and ' ' not in bare_keyword and
             '.' not in bare_keyword and '://' not in bare_keyword):
-        return {'items': [with_icon({
+        response = {'items': [with_icon({
             'title': '没有找到网站「' + domain + '」',
             'subtitle': ('若「' + bare_keyword[:80] +
                          '」是条目名称：无网站条目不能由 Apple 接口读取，请先在「密码」中添加网站。'),
             'valid': False,
         }, 'search')]}
-    return catalog_menu(domain, result['accounts'], needle, result['mode'], result['fallback'])
+    else:
+        response = catalog_menu(
+            domain, result['accounts'], needle, result['mode'], result['fallback'])
+    if paired_now:
+        # Pairing temporarily takes focus away from Alfred. One bounded rerun
+        # refreshes the original query; cached responses do not rerun again.
+        response['rerun'] = .2
+        try:
+            open_alfred_search(query)
+        except BridgeError:
+            # If Alfred rejects the explicit reopen, its native rerun remains
+            # available without turning a successful lookup into an error.
+            pass
+    return response
 
 
 def start_prewarm():

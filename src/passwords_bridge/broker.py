@@ -137,6 +137,7 @@ class SessionManager:
         self.cancelled = threading.Event()
         self.request_cancelled = threading.Event()
         self.starting_session = False
+        self.catalog_pairing_committed = False
         self.prewarmed_unpaired = False
         self.log = log
         self.perf_clock = perf_clock
@@ -194,24 +195,33 @@ class SessionManager:
             return True
         return False
 
-    def ensure_session(self, domain, username, mode):
+    def ensure_session(self, domain, username, mode, complete_catalog_pairing=False):
         self.start_session(domain, username, mode)
         self.session.set_scope(domain, username, mode)
+        paired_now = False
         if not self.session.state().get('paired'):
             self.clear_cache()
             self.log('pair_requested')
             started = self.perf_clock()
+            if complete_catalog_pairing:
+                # Once the user is entering Apple's PIN, finish this metadata
+                # lookup even if Alfred replaces its Script Filter process.
+                # The result remains secret-free and is cached for the rerun.
+                self.catalog_pairing_committed = True
             try:
                 self.session.pair()
+                paired_now = True
             finally:
                 self.record_performance('pairing', started)
             self.prewarmed_unpaired = False
             self.log('paired')
+        return paired_now
 
     def guard(self):
         now, wall = self.clock(), self.wall()
         reason = None
-        if self.request_cancelled.is_set() and not self.starting_session:
+        if (self.request_cancelled.is_set() and not self.starting_session and
+                not self.catalog_pairing_committed):
             raise RequestCancelled('Alfred 搜索内容已更新。')
         if self.cancelled.is_set():
             reason = 'manual_lock'
@@ -326,12 +336,15 @@ class SessionManager:
     def _metadata_accounts(self, domain, kind):
         from .accounts import account_list
         mode = kind + '_list'
-        self.ensure_session(domain, '', mode)
+        paired_now = self.ensure_session(
+            domain, '', mode, complete_catalog_pairing=True)
         started = self.perf_clock()
         try:
             self.guard()
             self.log(kind + '_metadata_requested')
-            return account_list(self.session.entries(mode), kind, domain, metadata_only=True)
+            accounts = account_list(
+                self.session.entries(mode), kind, domain, metadata_only=True)
+            return accounts, paired_now
         finally:
             self.record_performance(kind + '_metadata', started)
             if self.session:
@@ -348,6 +361,8 @@ class SessionManager:
         self.idle = request['idle_seconds']
         started = self.perf_clock()
         warm_cancel = False
+        paired_now = False
+        self.catalog_pairing_committed = False
         try:
             key = (request['domain'], request['mode'])
             cached = self.catalog_cache.get(key)
@@ -355,25 +370,32 @@ class SessionManager:
                 self.log('catalog_cache_hit')
                 return {'ok': True, 'mode': cached[1],
                         'accounts': self._public_accounts(cached[2]),
-                        'fallback': request['mode'] == 'password' and cached[1] == 'otp'}
+                        'fallback': request['mode'] == 'password' and cached[1] == 'otp',
+                        'paired_now': False}
             mode = request['mode']
-            accounts = self._metadata_accounts(request['domain'], mode)
+            accounts, paired_now = self._metadata_accounts(request['domain'], mode)
             # The common password path returns as soon as password metadata is
             # ready. Only an empty password catalogue pays for an OTP query.
             # Keep an entirely empty lookup in password mode: reporting it as
             # an OTP result makes a missing website look like a code-only
             # search and hides the actual website-scoped API boundary.
             if mode == 'password' and not accounts:
-                otp_accounts = self._metadata_accounts(request['domain'], 'otp')
+                otp_accounts, otp_paired = self._metadata_accounts(request['domain'], 'otp')
+                paired_now |= otp_paired
                 if otp_accounts:
                     mode, accounts = 'otp', otp_accounts
             cached = (self.clock(), mode, accounts)
             self.catalog_cache[key] = cached
             self.catalog_cache[(request['domain'], mode)] = cached
             return {'ok': True, 'mode': mode, 'accounts': self._public_accounts(accounts),
-                    'fallback': request['mode'] == 'password' and mode == 'otp'}
+                    'fallback': request['mode'] == 'password' and mode == 'otp',
+                    'paired_now': paired_now}
         except WarmSessionRequestCancelled:
             warm_cancel = True
+            raise
+        except RequestCancelled:
+            # A replaced Alfred query must not discard an otherwise valid
+            # paired browser. The next Script Filter run can reuse it.
             raise
         except BaseException:
             self.close_session()
@@ -385,6 +407,7 @@ class SessionManager:
                     self.session.clear_scope()
             except Exception:
                 self.close_session()
+            self.catalog_pairing_committed = False
             self.last_activity = self.clock()
             self.busy = False
 
@@ -515,7 +538,8 @@ def metadata_write(root, token):
                        'interactive': True, 'lazy_otp': True, 'lazy_passwords': True,
                        'credential_cache': True, 'alfred_catalog': True,
                        'performance_v1': True, 'native_ready_v1': True,
-                       'prewarm_v1': True, 'quick_actions_v1': True}, stream)
+                       'prewarm_v1': True, 'quick_actions_v1': True,
+                       'pair_rerun_v1': True}, stream)
         os.replace(temporary, root / 'session.json')
     finally:
         Path(temporary).unlink(missing_ok=True)

@@ -119,6 +119,23 @@ class FrontendTests(unittest.TestCase):
         self.assertEqual(json.loads(result['items'][0]['arg'])['action'], 'select')
         self.assertNotIn('SECRET-', json.dumps(result))
 
+    def test_fresh_catalog_pairing_reruns_original_alfred_query_once(self):
+        identity = {'kind': 'password', 'username': 'alice', 'title': 'Personal',
+                    'sites': ['github.com']}
+        fresh = {'ok': True, 'mode': 'password', 'fallback': False,
+                 'accounts': [{'identity': identity, 'duplicate': False}],
+                 'paired_now': True}
+        cached = dict(fresh, paired_now=False)
+        with tempfile.TemporaryDirectory() as root, \
+             patch.object(app, 'request_catalog', side_effect=[fresh, cached]), \
+             patch.object(app, 'open_alfred_search') as reopen, \
+             patch.dict(os.environ, {'SESSION_IDLE_SECONDS': '300'}):
+            first = app.direct_menu('github', app.AliasStore(root))
+            second = app.direct_menu('github', app.AliasStore(root))
+        self.assertEqual(first['rerun'], .2)
+        self.assertNotIn('rerun', second)
+        reopen.assert_called_once_with('github')
+
     def test_empty_bare_keyword_explains_no_website_boundary(self):
         reply = {'ok': True, 'mode': 'password', 'fallback': False, 'accounts': []}
         with tempfile.TemporaryDirectory() as root, \
