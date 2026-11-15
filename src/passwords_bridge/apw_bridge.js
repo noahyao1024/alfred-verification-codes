@@ -15,6 +15,7 @@
   const UNPAIRED = CONFIG.wireUnpaired;
 
   let pending = new Map(); // cmd -> { resolve, timer }
+  let unusable = false;
 
   // Keep the worker alive: swallow stray errors/rejections from the extension's own
   // code rather than let the runtime tear it down (which would drop the pairing).
@@ -30,7 +31,7 @@
     // The official worker sends CmdHello as soon as it opens the native port.
     // Starting SRP before that reply can be lost when the hello handler resets
     // SecretSession back to NotInSession.
-    const nativeReady = globalThis.__passwordsNativeReady === true;
+    const nativeReady = !unusable && globalThis.__passwordsNativeReady === true;
     return { paired: state === "SessionKeySet" && nativeReady, state: state, nativeReady: nativeReady };
   }
 
@@ -47,11 +48,21 @@
     }
   }
 
+  function invalidatePending(reason) {
+    // Native replies identify only the command, not a unique request. After an
+    // uncertain result, a late reply must never match a later domain's query.
+    // Retire this worker; only a new browser session may issue more requests.
+    unusable = true;
+    const waiters = Array.from(pending.values(), (entry) => entry.resolve);
+    clearPending();
+    for (const resolve of waiters) resolve({ status: INVALID_SESSION, error: reason });
+  }
+
   function pair(message) {
     try {
       // Pairing is synchronous within this worker task, so this closes the
       // readiness/state race between the Python-side poll and ChallengePIN/PINSet.
-      if (globalThis.__passwordsNativeReady !== true) {
+      if (unusable || globalThis.__passwordsNativeReady !== true) {
         return { status: INVALID_SESSION, error: "native helper not ready" };
       }
       if (message.pin == null) {
@@ -125,7 +136,7 @@
     if (typeof g_nativeAppPort === "undefined" || !g_nativeAppPort) {
       return { status: INVALID_SESSION, error: "extension not ready" };
     }
-    if (globalThis.__passwordsNativeReady !== true) {
+    if (unusable || globalThis.__passwordsNativeReady !== true) {
       return { status: INVALID_SESSION, error: "native helper not ready" };
     }
     if (typeof g_theState === "undefined" || g_theState !== "SessionKeySet") {
@@ -140,16 +151,15 @@
     try {
       smsg = g_secretSession.createSMSG(JSON.stringify(message.body));
     } catch (error) {
-      return { status: SERVER_ERROR, error: String(error) };
+      invalidatePending('native request encryption failed');
+      return { status: INVALID_SESSION, error: 'native request encryption failed' };
     }
 
     return await new Promise((resolve) => {
       pending.set(message.cmd, {
         resolve: resolve,
         timer: setTimeout(() => {
-          const stuck = pending.get(message.cmd);
-          clearPending(message.cmd);
-          if (stuck) stuck.resolve({ status: SERVER_ERROR, error: "native helper timed out" });
+          invalidatePending('native helper timed out');
         }, NATIVE_TIMEOUT_MS),
       });
       try {
@@ -161,15 +171,14 @@
           payload: JSON.stringify({ QID: message.qid, SMSG: smsg }),
         });
       } catch (error) {
-        clearPending(message.cmd);
-        resolve({ status: SERVER_ERROR, error: String(error) });
+        invalidatePending('native request delivery failed');
       }
     });
   }
 
   // Runs on Apple's native-message callback; nothing here may throw.
   function reply(message) {
-    if (!message || typeof message !== "object") return;
+    if (unusable || !message || typeof message !== "object") return;
     if (message.__passwordsNativeDisconnected === true) {
       if (!pending.size) return;
       const waiters = Array.from(pending.values(), (entry) => entry.resolve);
@@ -187,9 +196,15 @@
       const data = message.payload
         ? JSON.parse(g_secretSession.parseSMSG(message.payload.SMSG))
         : { STATUS: typeof message.STATUS === "number" ? message.STATUS : OK };
+      if (data && data.STATUS === INVALID_SESSION) {
+        invalidatePending('native session invalid');
+        resolve({ status: INVALID_SESSION, error: 'native session invalid' });
+        return;
+      }
       resolve({ data: data });
     } catch (error) {
-      resolve({ status: SERVER_ERROR, error: String(error) });
+      invalidatePending('native reply could not be decoded');
+      resolve({ status: INVALID_SESSION, error: 'native reply could not be decoded' });
     }
   }
 

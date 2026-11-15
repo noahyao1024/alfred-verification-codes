@@ -222,13 +222,28 @@ count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
 
+Version 0.8.14 fixes cross-account OTP cache isolation: looking up one alias's
+OTP availability no longer stores a filtered list as the entire website's
+catalogue. Native timeouts, undecodable replies, and invalid-session responses
+retire the worker and reject outstanding requests, so a late reply cannot be
+mistaken for the next domain's response. An optional malformed OTP catalogue
+can leave password results available with OTP presence unknown; it never
+converts an invalid session into a usable result.
+
+Concurrent metadata calls now report their individual durations and the batch
+wall time separately in `pass stats`, without another CDP round trip. Since the
+calls overlap, their durations must not be added together. The batch still
+waits for both metadata replies; concurrency removes serial waiting but does
+not make a slow native helper instantaneous.
+
 Version 0.8.13 copies passwords silently to the clipboard by default instead of
 opening a floating window on every Return. Explicit manual-typing display moves
 to `pshow`, `pass show`, and Control-Return. Password searches now pipeline
 Apple's ghost-search password (`cmd 4`) and OTP (`cmd 16`) metadata in a single
 parallel worker turn (one CDP round-trip on warm sessions, zero Touch ID),
 caching both lists at once and hiding verification-code entries/buttons whenever
-an account or website has no verification code.
+an account or website is confirmed to have no verification code. Unchecked
+aliases and unavailable OTP metadata retain a lookup action.
 
 Version 0.8.12 checks Apple's pairing state before serving cached account lists
 or passwords, including alias and selected-account copies. An invalid pairing

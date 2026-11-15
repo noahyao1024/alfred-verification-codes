@@ -166,28 +166,31 @@ return text returned of answer'''
     def query(self, mode):
         return self.request(self._query_message(mode))
 
-    def catalog_queries(self):
-        pw = json.dumps(self._query_message("password_list"))
-        otp = json.dumps(self._query_message("otp_list"))
-        return self.evaluate(
-            f"Promise.all([globalThis.__passwordsBridge.request({pw}),"
-            f"globalThis.__passwordsBridge.request({otp})])"
+    def _catalog_expression(self, domain):
+        pw = json.dumps(self._query_message("password_list", domain=domain, username=""))
+        otp = json.dumps(self._query_message("otp_list", domain=domain, username=""))
+        return (
+            "(async()=>{const timed=async(message)=>{const start=performance.now();"
+            "const reply=await globalThis.__passwordsBridge.request(message);"
+            "return {reply,ms:Math.max(0,Math.round(performance.now()-start))};};"
+            f"const [password,otp]=await Promise.all([timed({pw}),timed({otp})]);"
+            "return {password:password.reply,otp:otp.reply,"
+            "timings:{password_metadata:password.ms,otp_metadata:otp.ms}};})()"
         )
+
+    def catalog_queries(self):
+        return self.evaluate(self._catalog_expression(self.domain))
 
     def catalog_fast(self, domain):
         """Run paired check + scoped parallel metadata queries + scope cleanup in one CDP turn."""
-        pw = json.dumps(self._query_message("password_list", domain=domain, username=""))
-        otp = json.dumps(self._query_message("otp_list", domain=domain, username=""))
+        batch = self._catalog_expression(domain)
         dom = json.dumps(domain)
         self.domain = self.username = ""
         return self.evaluate(
             f"(async()=>{{const st=globalThis.__passwordsBridge.state();"
             f"if(!st||!st.paired)return{{paired:false}};"
             f"Object.assign(globalThis.__passwordsConfig,{{domain:{dom},username:'',operation:'catalog'}});"
-            f"try{{const [password,otp]=await Promise.all(["
-            f"globalThis.__passwordsBridge.request({pw}),"
-            f"globalThis.__passwordsBridge.request({otp})]);"
-            f"return{{paired:true,password,otp}};}}"
+            f"try{{return Object.assign({{paired:true}},await {batch});}}"
             f"finally{{Object.assign(globalThis.__passwordsConfig,{{domain:'',username:'',operation:''}});}}}})()"
         )
 

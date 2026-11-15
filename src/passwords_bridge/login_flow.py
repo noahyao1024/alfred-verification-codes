@@ -102,11 +102,14 @@ class LoginFlow:
         codes = self.cached_otp_accounts()
         if codes is None:
             try:
-                codes = self.fetch('otp_list')
+                # This cache is keyed by domain, so populate it with the whole
+                # website catalogue, never just the selected alias's username.
+                codes = self.fetch('otp_list', '')
                 self.manager.catalog_cache[(self.domain, 'otp')] = (
                     self.manager.clock(), 'otp', codes, bool(codes))
             except BridgeError:
-                self.manager.guard()
+                if not self.manager.cache_session_valid():
+                    raise
                 self.manager.log('otp_metadata_unavailable')
                 return True
         return bool(otp_matches(primary, codes))

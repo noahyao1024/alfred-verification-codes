@@ -4,13 +4,13 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../src/passwords_bridge/apw_bridge.js'), 'utf8');
 
-function fixture(operation = 'password', autoReply = true) {
+function fixture(operation = 'password', autoReply = true, timeout = 1000) {
     let sent = 0, context;
     context = vm.createContext({
         setTimeout, clearTimeout,
         self: {addEventListener() {}},
         __passwordsConfig: {statusOk: 0, statusInvalidParam: 2, statusInvalidSession: 9,
-            statusServerError: 100, nativeTimeoutMs: 1000, wireUnpaired: 'unpaired',
+            statusServerError: 100, nativeTimeoutMs: timeout, wireUnpaired: 'unpaired',
             operation, domain: 'example.com', username: 'alice'},
         __passwordsNativeReady: true,
         g_theState: 'SessionKeySet',
@@ -115,5 +115,32 @@ function fixture(operation = 'password', autoReply = true) {
     const p2 = slowCatalog.request(metadata);
     slowCatalog.disconnect();
     assert.deepEqual([(await p1).status, (await p2).status], [9, 9]);
+    const timedOut = fixture('catalog', false, 15);
+    const timedPassword = timedOut.request(pwMetadata);
+    const timedOtp = timedOut.request(metadata);
+    assert.deepEqual([(await timedPassword).status, (await timedOtp).status], [9, 9]);
+    assert.equal(timedOut.context.__passwordsBridge.state().paired, false);
+    assert.equal((await timedOut.request({cmd: 2})).status, 9);
+    timedOut.context.__passwordsConfig.domain = 'next.example';
+    const next = timedOut.request({...metadata, body: {...metadata.body, frameURLs: ['https://next.example']}});
+    // The old request's reply cannot become the next domain's metadata.
+    timedOut.context.__passwordsBridgeNativeReply({cmd: 16, payload: {SMSG: JSON.stringify({
+        STATUS: 0, Entries: [{domain: 'example.com'}]
+    })}});
+    assert.equal((await next).status, 9);
+    assert.equal(timedOut.count(), 2);
+
+    const unreadable = fixture('catalog', false);
+    const badPassword = unreadable.request(pwMetadata);
+    const abandonedOtp = unreadable.request(metadata);
+    unreadable.context.__passwordsBridgeNativeReply({cmd: 4, payload: {SMSG: 'not valid JSON'}});
+    assert.deepEqual([(await badPassword).status, (await abandonedOtp).status], [9, 9]);
+    assert.equal(unreadable.context.__passwordsBridge.state().paired, false);
+    const invalidated = fixture('catalog', false);
+    const invalidPw = invalidated.request(pwMetadata);
+    const invalidOtp = invalidated.request(metadata);
+    invalidated.context.__passwordsBridgeNativeReply({cmd: 16, STATUS: 9});
+    assert.deepEqual([(await invalidPw).status, (await invalidOtp).status], [9, 9]);
+    assert.equal(invalidated.context.__passwordsBridge.state().paired, false);
     console.log('Bridge policy tests passed');
 })().catch(error => {console.error(error); process.exitCode = 1;});

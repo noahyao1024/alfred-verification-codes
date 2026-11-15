@@ -117,9 +117,10 @@ class NativeBridgeTests(unittest.TestCase):
                        'body': {'ACT': 2, 'URL': 'example.invalid', 'USR': 'fixture-user'}}
             self.assertEqual(session.request(pw_read)['status'], 2)
         with PasswordSession('example.invalid', '', 'catalog') as session:
-            pw_reply, otp_reply = session.catalog_queries()
-            self.assertEqual(pw_reply['status'], 9)
-            self.assertEqual(otp_reply['status'], 9)
+            batch = session.catalog_queries()
+            self.assertEqual(batch['password']['status'], 9)
+            self.assertEqual(batch['otp']['status'], 9)
+            self.assertEqual(set(batch['timings']), {'password_metadata', 'otp_metadata'})
             pw_read = {'cmd': 5, 'qid': 'CmdGetPassword4LoginName', 'url': 'example.invalid',
                        'body': {'ACT': 2, 'URL': 'example.invalid', 'USR': 'fixture-user'}}
             self.assertEqual(session.request(pw_read)['status'], 2)

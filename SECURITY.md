@@ -1,10 +1,10 @@
-# Security scope of version 0.8.13
+# Security scope of version 0.8.14
 
 This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.8.13 behavior |
+| Boundary | Version 0.8.14 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
 | Session lifetime | 30 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
@@ -64,6 +64,17 @@ OTP metadata may omit the optional source/title field. That omission is tolerate
 only when username and sites resolve to one factor; multiple matches still fail.
 Existing nonempty source bindings remain specific.
 
+Domain-keyed OTP caches contain the full website catalogue, never one alias's
+username-filtered result. Optional malformed OTP metadata leaves presence
+unknown rather than falsely absent. Invalid-session replies remain fatal.
+
+Native replies identify a command rather than a unique request. On timeout,
+delivery/encryption failure, undecodable replies, or a native invalid-session
+response, the bridge permanently marks that worker unusable and rejects all
+pending requests. Later replies and re-pair attempts on the same worker cannot
+revive it. The broker closes the session; another user operation may create a
+fresh browser. This prevents a late reply from being attached to a later query.
+
 Every cache hit checks the current Apple pairing state before returning account
 metadata or copying a password. This applies to selected-account and alias
 copies as well as the legacy copy endpoint; it does not wait for the idle
@@ -92,9 +103,11 @@ window for manual typing. The value travels to that owned UI child over stdin,
 not argv, environment, temporary files, or the Alfred IPC response. The child
 returns only an action/index. Plaintext is not sent to Notification
 Center. Display timeout, screen lock, and cancellation close the window; screen
-observers or recording software can still see it. `SHOW_SECRETS` disables the
-password window entirely. Codes finish immediately after clipboard delivery,
-regardless of this setting. Command-Return on a password result reads only its
+observers or recording software can still see it. Ordinary `pass` copies are
+silent by default; `SHOW_SECRETS` opts those copies into display. Explicit
+`pshow`, `pass show`, or Control-Return still requests display independently of
+that default. Codes finish immediately after clipboard delivery, regardless
+of this setting. Command-Return on a password result reads only its
 matching OTP, without retrieving the password. The interaction may keep a session
 busy, but remains bounded by the broker's absolute lifetime cap.
 

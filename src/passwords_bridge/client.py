@@ -115,7 +115,8 @@ def retire_incompatible_broker():
         if (not info.get('alfred_catalog') or not info.get('performance_v1') or
                 not info.get('native_ready_v1') or not info.get('prewarm_v1') or
                 not info.get('quick_actions_v1') or not info.get('pair_rerun_v1') or
-                not info.get('cache_validation_v1') or not info.get('otp_presence_v1')):
+                not info.get('cache_validation_v1') or not info.get('otp_presence_v1') or
+                not info.get('metadata_resilience_v1')):
             result = lock_session()
             if not result['ok']:
                 raise BridgeError(result['message'])

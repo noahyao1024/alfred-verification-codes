@@ -12,6 +12,7 @@ PERF_PHASES = {
     'pairing': 'Apple 配对',
     'password_metadata': '密码账号元数据',
     'otp_metadata': '验证码账号元数据',
+    'metadata_batch': '并发账号查询总耗时',
     'password_value': '密码读取',
     'otp_value': '验证码读取',
     'catalog_total': 'Alfred 结果就绪',

@@ -368,18 +368,21 @@ class SessionManager:
         if (isinstance(self.session, PasswordSession) and
                 type(self.session).entries is PasswordSession.entries):
             paired_now = False
-            pw_raw = otp_raw = None
+            batch = None
             if not self.prewarmed_unpaired:
                 started = self.perf_clock()
                 self.guard()
-                fast = self.session.catalog_fast(domain)
+                try:
+                    fast = self.session.catalog_fast(domain)
+                except BaseException:
+                    self.record_performance('metadata_batch', started)
+                    raise
                 if isinstance(fast, dict) and fast.get('paired'):
                     self.log('password_metadata_requested')
                     self.log('otp_metadata_requested')
-                    self.record_performance('password_metadata', started)
-                    self.record_performance('otp_metadata', started)
-                    pw_raw, otp_raw = fast.get('password'), fast.get('otp')
-            if pw_raw is None:
+                    self.record_performance('metadata_batch', started)
+                    batch = fast
+            if batch is None:
                 paired_now = self.ensure_session(
                     domain, '', 'catalog', complete_catalog_pairing=True)
                 started = self.perf_clock()
@@ -387,16 +390,28 @@ class SessionManager:
                     self.guard()
                     self.log('password_metadata_requested')
                     self.log('otp_metadata_requested')
-                    pw_raw, otp_raw = self.session.catalog_queries()
+                    batch = self.session.catalog_queries()
                 finally:
-                    self.record_performance('password_metadata', started)
-                    self.record_performance('otp_metadata', started)
+                    self.record_performance('metadata_batch', started)
                     if self.session:
                         self.session.clear_scope()
+            if not isinstance(batch, dict) or not {'password', 'otp'} <= batch.keys():
+                raise BridgeError('账号列表批量响应格式无效。')
+            # Worker timings measure each concurrent request independently;
+            # the batch wall time must not be attributed to both requests.
+            timings = batch.get('timings', {})
+            if isinstance(timings, dict):
+                for phase in ('password_metadata', 'otp_metadata'):
+                    duration = timings.get(phase)
+                    if type(duration) is int and 0 <= duration <= MAX_LIFETIME * 1000:
+                        self.log(f'perf|{phase}|{duration}')
+            pw_raw, otp_raw = batch['password'], batch['otp']
             pw_accounts = account_list(
                 decode_entries(pw_raw), 'password', domain, metadata_only=True)
-            otp_status = (otp_raw.get('data', {}).get('STATUS', otp_raw.get('status'))
-                          if isinstance(otp_raw, dict) else None)
+            otp_data = otp_raw.get('data') if isinstance(otp_raw, dict) else None
+            otp_status = (otp_data.get('STATUS', otp_raw.get('status'))
+                          if isinstance(otp_data, dict) else
+                          otp_raw.get('status') if isinstance(otp_raw, dict) else None)
             if otp_status == 9:
                 decode_entries(otp_raw)
             try:
@@ -417,6 +432,8 @@ class SessionManager:
         except (RequestCancelled, SessionExpired):
             raise
         except BridgeError:
+            if not self.cache_session_valid():
+                raise
             self.log('otp_metadata_unavailable')
             otp_accounts = []
             otp_known = False
@@ -638,7 +655,7 @@ def metadata_write(root, token):
                        'performance_v1': True, 'native_ready_v1': True,
                        'prewarm_v1': True, 'quick_actions_v1': True,
                        'pair_rerun_v1': True, 'cache_validation_v1': True,
-                       'otp_presence_v1': True}, stream)
+                       'otp_presence_v1': True, 'metadata_resilience_v1': True}, stream)
         os.replace(temporary, root / 'session.json')
     finally:
         Path(temporary).unlink(missing_ok=True)

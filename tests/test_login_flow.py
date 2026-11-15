@@ -222,6 +222,32 @@ class FlowTests(unittest.TestCase):
         self.manager.login(login_request(domain='', alias='bob-work', display=True))
         self.assertEqual(self.ui.panels[0][2], False)
 
+    def test_show_alias_does_not_poison_another_accounts_otp_cache(self):
+        alice, bob = [account.identity for account in account_list(PASSWORDS, 'password', 'example.com')]
+        self.store.put('bob-work', {'domain': 'example.com', 'identity': bob})
+        self.manager.login(login_request(domain='', alias='bob-work', display=True))
+        self.assertFalse(self.ui.panels[0][2])
+        result = self.manager.select(select_request(alice, op='select_otp'))
+        self.assertTrue(result['ok'])
+        self.assertEqual(self.copies[-1], '000001')
+        self.assertEqual(self.instances[0].otp_metadata_queries, 1)
+
+    def test_invalidated_otp_lookup_cannot_continue_to_show_or_copy_password(self):
+        original_entries = self.factory.entries
+        def entries(session, kind):
+            if kind == 'otp_list':
+                session.paired = False
+                raise BridgeError('Apple 配对已失效。')
+            return original_entries(session, kind)
+        self.factory.entries = entries
+        alice = account_list(PASSWORDS, 'password', 'example.com')[0].identity
+        self.store.put('work', {'domain': 'example.com', 'identity': alice})
+        with self.assertRaises(BridgeError):
+            self.manager.login(login_request(domain='', alias='work', display=True))
+        self.assertEqual(self.copies, [])
+        self.assertEqual(self.ui.panels, [])
+        self.assertIsNone(self.manager.session)
+
     def test_warm_real_session_uses_single_turn_parallel_catalog_fast(self):
         from passwords_bridge.session import PasswordSession
         calls = []
@@ -237,8 +263,8 @@ class FlowTests(unittest.TestCase):
                 self.paired = True
             def catalog_queries(self):
                 calls.append(('catalog_queries',))
-                return ({'data': {'STATUS': 0, 'Entries': list(PASSWORDS)}},
-                        {'data': {'STATUS': 0, 'Entries': []}})
+                return {'password': {'data': {'STATUS': 0, 'Entries': list(PASSWORDS)}},
+                        'otp': {'data': {'STATUS': 0, 'Entries': []}}}
             def catalog_fast(self, domain):
                 calls.append(('catalog_fast', domain))
                 return {'paired': self.paired,
