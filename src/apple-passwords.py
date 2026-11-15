@@ -18,7 +18,7 @@ from passwords_bridge.extension import data_dir, setup
 from passwords_bridge.aliases import AliasStore
 from passwords_bridge.alias_editor import AliasEditor
 from passwords_bridge.local_ui import LocalUI
-from passwords_bridge.menu import catalog_menu, menu, validate_action, with_icon
+from passwords_bridge.menu import action_item, catalog_menu, menu, validate_action, with_icon
 from passwords_bridge.performance import stats_menu
 
 
@@ -114,12 +114,21 @@ def direct_menu(query, store=None):
     if query.strip() == 'stats':
         return stats_menu(data_dir() / 'session.log')
     store = store or AliasStore()
-    if local_menu_query(query):
+    if local_menu_query(query) or query.strip().startswith('@'):
         return menu(query, store)
-    candidate = query.strip().lstrip('@').casefold()
-    if candidate and ' ' not in candidate and any(
-            record['name'].casefold() == candidate for record in store.all()):
-        return menu(query, store)
+    candidate = query.strip().casefold()
+    names = [record['name'].casefold() for record in store.all()]
+    if candidate and any(name.startswith(candidate) for name in names):
+        response = menu(query, store)
+        if candidate not in names:
+            # Alias prefixes stay local. An explicit domain still reaches the
+            # website path, including when a saved alias has the same prefix.
+            parsed = catalog_query(query)
+            if parsed is not None:
+                response['items'].append(action_item(
+                    '查找网站 ' + parsed[0], '回车查询这个网站的账号',
+                    'search', icon='search', query=parsed[0]))
+        return response
     parsed = catalog_query(query)
     if parsed is None:
         return menu(query, store)

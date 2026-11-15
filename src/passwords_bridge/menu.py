@@ -88,12 +88,12 @@ def catalog_menu(domain, records, needle='', mode='password', fallback=False):
             'valid': False,
         }, 'search'))
     if mode == 'password':
-        switch = ('codes ' + domain, '查找此网站的验证码',
+        switch = ('codes ' + domain + (' ' + needle if needle else ''), '查找此网站的验证码',
                   '回车选择验证码账号；密码条目也可按 ⌘↩ 直接复制验证码')
         items.append(action_item(switch[1], switch[2], 'search', icon='otp', query=switch[0]))
     elif not fallback:
         items.append(action_item('返回密码列表', '回车选择要复制的密码',
-                                 'search', icon='password', query=domain))
+                                 'search', icon='password', query=domain + (' ' + needle if needle else '')))
     return {'items': items}
 
 
@@ -179,6 +179,10 @@ def menu(query, store=None, editor=None):
                               'lock', icon='lock'),
                   action_item('帮助与设置', '使用说明、初始化、性能统计',
                               'search', icon='help', query='help')]
+    elif not items and (alias_mode or query.startswith('@')):
+        items = [with_icon({'title': '没有匹配的别名',
+                            'subtitle': '输入 pass alias 查看已有别名',
+                            'valid': False}, 'alias')]
     elif not items:
         items = [with_icon({'title': '继续输入',
                             'subtitle': '请输入英文网站简称、域名或 HTTP/HTTPS URL',

@@ -90,6 +90,12 @@ name, check the account preview, and press Return. No separate native text dialo
 is used. Normal alias results use Option-Return to rename and Command-Return to
 copy the matching code; `pass alias` retains its management shortcuts above.
 
+Typing a saved alias prefix, such as `pass gh` for `gh-work`, shows local alias
+matches without contacting the password service. Choose the additional website
+result to query `gh.com`, or type a full domain directly. Use `pass @gh` to search
+only aliases. Switching between password and code lists preserves the account
+filter, including Chinese filter text.
+
 Aliases
 contain only its query domain, username, title, sites, and credential kind, never
 a password or OTP seed. Password changes and result reordering do not change the
@@ -211,6 +217,13 @@ this shipped once with a generator that had never been verified.
 count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
+
+Version 0.8.12 checks Apple's pairing state before serving cached account lists
+or passwords, including alias and selected-account copies. An invalid pairing
+clears those caches before reauthorization; cancelling reauthorization copies
+nothing. A valid pairing still reuses cached data without another credential
+read. Alias prefixes now stay local, case-only alias edits preserve the binding,
+and switching to verification codes keeps the account filter.
 
 Version 0.8.11 ignores non-ASCII and malformed website tokens before contacting
 the password broker. Plain Chinese text therefore stays local instead of being

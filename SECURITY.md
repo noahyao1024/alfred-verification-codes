@@ -1,10 +1,10 @@
-# Security scope of version 0.8.11
+# Security scope of version 0.8.12
 
 This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.8.11 behavior |
+| Boundary | Version 0.8.12 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
 | Session lifetime | 30 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
@@ -64,6 +64,13 @@ OTP metadata may omit the optional source/title field. That omission is tolerate
 only when username and sites resolve to one factor; multiple matches still fail.
 Existing nonempty source bindings remain specific.
 
+Every cache hit checks the current Apple pairing state before returning account
+metadata or copying a password. This applies to selected-account and alias
+copies as well as the legacy copy endpoint; it does not wait for the idle
+monitor's next tick. Invalid pairing clears all session caches before pairing
+again. If pairing is cancelled or the state check fails, cached passwords are
+not delivered. A valid state check itself reads no credential.
+
 Aliases store only whitelisted account metadata in a mode-0600 JSON file. They
 contain no password, code, seed, or secret-derived identifier. Renamed or duplicated
 bindings fail instead of guessing a different account; overwrite requires
@@ -76,6 +83,9 @@ guarantees immediate file removal at expiry. The ID prevents a previously render
 save action from binding a later account. Replacing a different binding requires
 explicit confirmation via a result labelled as an update with the target preview.
 The password window's alias action returns only binding metadata to Alfred.
+Alias-prefix and explicit `@` searches use local metadata only. A partial alias
+offers an explicit website query instead of automatically starting one. Alias
+names remain case-insensitive; a case-only edit does not change its binding.
 
 On the user's explicit request, copied passwords may be shown in a large native
 window for manual typing. The value travels to that owned UI child over stdin,

@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.8.11")
+VERSION = os.environ.get("VERSION", "0.8.12")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -218,6 +218,7 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 * Opening `pass` prewarms the isolated browser without pairing, querying accounts, or reading credentials.
 * `pass github [search text]`: use one keyword path, query `github.com` automatically, and show matching password accounts directly in Alfred.
 * Full domains and URLs use the same input path; exact aliases keep priority.
+* A saved alias prefix shows local matches without a website request. Choose the website result to search there; `pass @prefix` searches aliases only.
 * Apple exposes accounts by website. Entries with no Website field cannot be read through its browser helper; an empty bare-keyword search explains this directly.
 * `pass codes github`: show verification-code accounts on demand; Return copies a code directly.
 * Return on a password account copies it and opens a temporary window for manual typing. \
@@ -243,6 +244,7 @@ starts pairing. Pairing is reused until 30 minutes \
 of inactivity by default, screen lock, sleep/session switch, manual pwlock, \
 or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
 The idle timeout is configurable. A later copy starts a fresh session.
+Cached accounts and passwords are reused only after checking that Apple pairing is still valid.
 
 The broker uses a mode-0600 Unix socket and a per-session token in a \
 mode-0700 directory. Passwords never travel back to Alfred over that socket. \

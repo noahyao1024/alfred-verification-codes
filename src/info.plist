@@ -572,6 +572,7 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 * Opening `pass` prewarms the isolated browser without pairing, querying accounts, or reading credentials.
 * `pass github [search text]`: use one keyword path, query `github.com` automatically, and show matching password accounts directly in Alfred.
 * Full domains and URLs use the same input path; exact aliases keep priority.
+* A saved alias prefix shows local matches without a website request. Choose the website result to search there; `pass @prefix` searches aliases only.
 * Apple exposes accounts by website. Entries with no Website field cannot be read through its browser helper; an empty bare-keyword search explains this directly.
 * `pass codes github`: show verification-code accounts on demand; Return copies a code directly.
 * Return on a password account copies it and opens a temporary window for manual typing. Command-Return copies its matching code directly. The Copy Verification Code button in the password window also copies the code and closes the window. Codes never open a value window.
@@ -588,6 +589,7 @@ Aliases and five-minute editor drafts store account identifiers only, never a pa
 Clipboard privacy markers request exclusion from history.
 The empty `pass` menu may start the unpaired browser; the first account search starts pairing. Pairing is reused until 30 minutes of inactivity by default, screen lock, sleep/session switch, manual pwlock, or a 30-minute maximum lifetime. Apple may invalidate pairing earlier.
 The idle timeout is configurable. A later copy starts a fresh session.
+Cached accounts and passwords are reused only after checking that Apple pairing is still valid.
 
 The broker uses a mode-0600 Unix socket and a per-session token in a mode-0700 directory. Passwords never travel back to Alfred over that socket. Browser control still uses anonymous CDP pipes, with no TCP debugging port. These controls do not authenticate Alfred as a unique application or protect against a compromised macOS user account.
 
@@ -944,7 +946,7 @@ The `otp` command generates codes locally from the stored seed (RFC 6238), indep
 	<key>variablesdontexport</key>
 	<array/>
 	<key>version</key>
-	<string>0.8.11</string>
+	<string>0.8.12</string>
 	<key>webaddress</key>
 	<string>https://github.com/noahyao1024/alfred-verification-codes</string>
 </dict>

@@ -195,6 +195,46 @@ class FlowTests(unittest.TestCase):
         self.assertNotIn('SECRET-', json.dumps(first))
         self.assertIn('catalog_cache_hit', self.logs)
 
+    def test_selected_password_revalidates_apple_session_before_cache_use(self):
+        identity = self.manager.catalog(catalog_request())['accounts'][0]['identity']
+        self.manager.select(select_request(identity, display=False))
+        owned = self.manager.session
+        owned.paired = False
+        owned.passwords = [dict(PASSWORDS[0], PWD='SYNTHETIC-ROTATED')]
+        result = self.manager.select(select_request(identity, display=False))
+        self.assertTrue(result['ok'])
+        self.assertEqual(owned.pairs, 2)
+        self.assertEqual(owned.password_queries, 2)
+        self.assertEqual(self.copies[-1], 'SYNTHETIC-ROTATED')
+        self.assertIsNone(owned.scope)
+
+    def test_cancelled_repair_never_copies_cached_alias_password(self):
+        identity = self.manager.catalog(catalog_request())['accounts'][0]['identity']
+        self.store.put('work', {'domain': 'example.com', 'identity': identity})
+        request = login_request(domain='', alias='work', display=False)
+        self.manager.login(request)
+        self.copies.clear()
+        owned = self.manager.session
+        owned.paired = False
+        def cancel(): raise BridgeError('配对已取消。')
+        owned.on_pair = cancel
+        with self.assertRaises(BridgeError): self.manager.login(request)
+        self.assertEqual(self.copies, [])
+        self.assertEqual(self.manager.password_cache, {})
+        self.assertTrue(owned.closed)
+
+    def test_catalog_revalidates_session_and_drops_stale_metadata(self):
+        self.manager.catalog(catalog_request())
+        owned = self.manager.session
+        owned.paired = False
+        owned.passwords = [PASSWORDS[1]]
+        result = self.manager.catalog(catalog_request())
+        self.assertTrue(result['paired_now'])
+        self.assertEqual(owned.pairs, 2)
+        self.assertEqual(owned.password_metadata_queries, 2)
+        self.assertEqual([record['identity']['username'] for record in result['accounts']], ['bob'])
+        self.assertEqual(self.copies, [])
+
     def test_catalog_falls_back_to_otp_only_when_no_password_exists(self):
         self.factory.passwords = []
         result = self.manager.catalog(catalog_request())
@@ -481,7 +521,7 @@ class AliasAndMenuTests(unittest.TestCase):
         self.assertEqual(result['items'][-1]['icon']['path'], 'icons/otp.png')
         self.assertNotIn('元数据', json.dumps(result, ensure_ascii=False))
         self.assertEqual(json.loads(result['items'][-1]['arg']),
-                         {'action': 'search', 'query': 'codes example.com'})
+                         {'action': 'search', 'query': 'codes example.com ali'})
         fallback = catalog_menu('example.com', accounts, mode='otp', fallback=True)
         self.assertEqual(len(fallback['items']), 1)
 

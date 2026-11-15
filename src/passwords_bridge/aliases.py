@@ -107,7 +107,7 @@ class AliasStore:
         with self._locked():
             aliases = self._load()
             existing = aliases.get(name.casefold())
-            if existing and existing != record and not replace:
+            if existing and any(existing[key] != binding[key] for key in ('domain', 'identity')) and not replace:
                 raise AliasExists('这个别名已经绑定其他账号。')
             aliases[name.casefold()] = record
             self._save(aliases)

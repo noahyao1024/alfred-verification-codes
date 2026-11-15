@@ -155,13 +155,21 @@ class SessionManager:
     def record_performance(self, phase, started):
         self.log(performance_event(phase, started, self.perf_clock))
 
+    def cache_session_valid(self):
+        """A cache hit must honor Apple invalidation before the next idle tick."""
+        self.guard()
+        if self.session is not None and self.session.state().get('paired'):
+            self.guard()
+            return True
+        self.clear_cache()
+        return False
+
     def get_cached_password(self, identity):
         from .accounts import Account, identity_key
         key = identity_key(identity)
-        value = self.password_cache.get(key)
-        if not value:
+        if key not in self.password_cache or not self.cache_session_valid():
             return None
-        return Account(dict(identity), value)
+        return Account(dict(identity), self.password_cache[key])
 
     def put_cached_password(self, account):
         from .accounts import identity_key
@@ -297,17 +305,14 @@ class SessionManager:
         value = None
         try:
             cache_key = (request['domain'], request['username'])
-            if request['mode'] == 'password' and self.session is not None and cache_key in self.copy_cache:
+            if (request['mode'] == 'password' and cache_key in self.copy_cache and
+                    self.cache_session_valid()):
+                value = self.copy_cache[cache_key]
+                self.copier(value, request['clear_after'])
                 self.guard()
-                if self.session.state().get('paired'):
-                    value = self.copy_cache[cache_key]
-                    self.guard()
-                    self.copier(value, request['clear_after'])
-                    self.guard()
-                    self.log('password_cache_hit')
-                    self.log('copied')
-                    return {'ok': True, 'message': '密码已复制。'}
-                self.clear_cache()
+                self.log('password_cache_hit')
+                self.log('copied')
+                return {'ok': True, 'message': '密码已复制。'}
             self.ensure_session(request['domain'], request['username'], request['mode'])
             self.guard()
             value = self.session.read(request['mode'])
@@ -361,18 +366,21 @@ class SessionManager:
         self.idle = request['idle_seconds']
         started = self.perf_clock()
         warm_cancel = False
+        used_scope = False
         paired_now = False
         self.catalog_pairing_committed = False
         try:
             key = (request['domain'], request['mode'])
             cached = self.catalog_cache.get(key)
-            if cached and self.clock() - cached[0] <= CATALOG_TTL:
+            if (cached and self.clock() - cached[0] <= CATALOG_TTL and
+                    self.cache_session_valid()):
                 self.log('catalog_cache_hit')
                 return {'ok': True, 'mode': cached[1],
                         'accounts': self._public_accounts(cached[2]),
                         'fallback': request['mode'] == 'password' and cached[1] == 'otp',
                         'paired_now': False}
             mode = request['mode']
+            used_scope = True
             accounts, paired_now = self._metadata_accounts(request['domain'], mode)
             # The common password path returns as soon as password metadata is
             # ready. Only an empty password catalogue pays for an OTP query.
@@ -403,7 +411,7 @@ class SessionManager:
         finally:
             self.record_performance('catalog_total', started)
             try:
-                if self.session and not warm_cancel:
+                if self.session and used_scope and not warm_cancel:
                     self.session.clear_scope()
             except Exception:
                 self.close_session()
@@ -539,7 +547,7 @@ def metadata_write(root, token):
                        'credential_cache': True, 'alfred_catalog': True,
                        'performance_v1': True, 'native_ready_v1': True,
                        'prewarm_v1': True, 'quick_actions_v1': True,
-                       'pair_rerun_v1': True}, stream)
+                       'pair_rerun_v1': True, 'cache_validation_v1': True}, stream)
         os.replace(temporary, root / 'session.json')
     finally:
         Path(temporary).unlink(missing_ok=True)

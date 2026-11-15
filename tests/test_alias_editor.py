@@ -69,6 +69,15 @@ class AliasEditorTests(unittest.TestCase):
         self.assertEqual(self.store.all(), [])
         self.assertEqual(self.editor.current()['id'], second['id'])
 
+    def test_case_only_alias_change_keeps_binding_without_false_conflict(self):
+        self.store.put('work', BINDING)
+        self.editor.begin(BINDING)
+        item = menu('alias save WORK', self.store, self.editor)['items'][0]
+        action = json.loads(item['arg'])
+        self.editor.save(action['draft'], action['name'], action['replace'])
+        self.assertEqual(len(self.store.all()), 1)
+        self.assertEqual(self.store.get('work'), dict(BINDING, name='WORK'))
+
     def test_expired_draft_is_not_saved(self):
         draft = self.editor.begin(BINDING)
         self.now[0] += 301
