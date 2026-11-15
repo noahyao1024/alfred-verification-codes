@@ -19,10 +19,21 @@ def action_item(title, subtitle, action, icon=None, **values):
     return with_icon(item, icon) if icon else item
 
 
-def alias_item(record, management=False):
+def alias_item(record, management=False, display=False):
     identity = record['identity']
-    item = action_item(record['name'], display_text(record['domain'] + ' · ' + identity['username'] + ' · ' + identity['title']),
-                       'login', icon='alias', alias=record['name'])
+    subtitle = display_text(record['domain'] + ' · ' + identity['username'] + ' · ' + identity['title'])
+    if display:
+        item = action_item('显示并复制密码 · ' + record['name'], subtitle,
+                           'login', icon='show', alias=record['name'], display=True)
+        item['mods'] = {
+            'alt': {'arg': json.dumps({'action': 'rename', 'name': record['name']}),
+                    'subtitle': '在 Alfred 中重命名别名'},
+        }
+        if identity['kind'] == 'password':
+            item['mods']['cmd'] = {'arg': json.dumps({'action': 'select_otp', 'domain': record['domain'], 'identity': identity}),
+                                   'subtitle': '直接复制这个账号的验证码'}
+        return item
+    item = action_item(record['name'], subtitle, 'login', icon='alias', alias=record['name'])
     if management:
         item['mods'] = {
             'cmd': {'arg': json.dumps({'action': 'rename', 'name': record['name']}), 'subtitle': '重命名别名'},
@@ -34,50 +45,74 @@ def alias_item(record, management=False):
         }
         if identity['kind'] == 'password':
             item['mods']['cmd'] = {'arg': json.dumps({'action': 'select_otp', 'domain': record['domain'], 'identity': identity}),
-                                   'subtitle': '直接复制这个账号的验证码，不弹出密码窗口'}
+                                   'subtitle': '直接复制这个账号的验证码'}
+            item['mods']['ctrl'] = {'arg': json.dumps({'action': 'login', 'alias': record['name'], 'display': True}),
+                                    'subtitle': '复制并显示密码浮窗，方便手打'}
     return item
 
 
-def catalog_menu(domain, records, needle='', mode='password', fallback=False):
+def catalog_menu(domain, records, needle='', mode='password', fallback=False, has_otp=None, display=False):
     """Render secret-free account metadata directly in Alfred."""
     if mode not in ('password', 'otp'):
         raise BridgeError('账号列表类型无效。')
     terms = needle.casefold().split()
     items = []
     for record in records:
-        if not isinstance(record, dict) or set(record) != {'identity', 'duplicate'} or type(record['duplicate']) is not bool:
+        if (not isinstance(record, dict) or
+                not {'identity', 'duplicate'} <= set(record) <= {'identity', 'duplicate', 'has_otp'} or
+                type(record['duplicate']) is not bool or
+                type(record.get('has_otp', True)) is not bool):
             continue
         try:
             identity = validate_identity(record['identity'])
         except BridgeError:
             continue
-        account = Account(identity, '', record['duplicate'])
+        account = Account(identity, '', record['duplicate'], record.get('has_otp', True))
         searchable = ' '.join([account.label, account.username, *account.sites,
                                '密码' if account.kind == 'password' else '验证码']).casefold()
         if not all(term in searchable for term in terms):
             continue
         row = account.row(len(items))
+        if display and account.kind == 'password':
+            title, icon_name = '显示并复制密码 · ' + account.label, 'show'
+        else:
+            title = ('复制密码 · ' if account.kind == 'password' else '复制验证码 · ') + account.label
+            icon_name = account.kind
         item = {
-            'title': ('复制密码 · ' if account.kind == 'password' else '复制验证码 · ') + account.label,
+            'title': title,
             # Keep the ordinary row calm: Alfred replaces this text with each
             # modifier's action while the user holds that key.
             'subtitle': row['username'] + ' · ' + row['sites'],
             'match': searchable,
             'valid': not account.duplicate,
         }
-        with_icon(item, account.kind)
+        with_icon(item, icon_name)
         if not account.duplicate:
-            item['arg'] = json.dumps({'action': 'select', 'domain': domain, 'identity': identity},
-                                     ensure_ascii=False)
+            select_payload = {'action': 'select', 'domain': domain, 'identity': identity}
+            if display and account.kind == 'password':
+                select_payload['display'] = True
+            item['arg'] = json.dumps(select_payload, ensure_ascii=False)
             item['mods'] = {'alt': {
                 'arg': json.dumps({'action': 'begin_alias', 'domain': domain, 'identity': identity}, ensure_ascii=False),
                 'subtitle': '在 Alfred 输入别名，不读取密码',
             }}
             if account.kind == 'password':
-                item['mods']['cmd'] = {
-                    'arg': json.dumps({'action': 'select_otp', 'domain': domain, 'identity': identity}, ensure_ascii=False),
-                    'subtitle': '直接复制这个账号的验证码，不弹出密码窗口',
-                }
+                if not display:
+                    item['mods']['ctrl'] = {
+                        'arg': json.dumps({'action': 'select', 'domain': domain,
+                                           'identity': identity, 'display': True}, ensure_ascii=False),
+                        'subtitle': '复制并显示密码浮窗，方便手打',
+                    }
+                if account.has_otp:
+                    item['mods']['cmd'] = {
+                        'arg': json.dumps({'action': 'select_otp', 'domain': domain, 'identity': identity}, ensure_ascii=False),
+                        'subtitle': '直接复制这个账号的验证码',
+                    }
+                else:
+                    item['mods']['cmd'] = {
+                        'valid': False,
+                        'subtitle': '此账号没有验证码',
+                    }
         else:
             item['subtitle'] = '记录标识重复，请先在系统「密码」中区分。'
         items.append(item)
@@ -87,10 +122,18 @@ def catalog_menu(domain, records, needle='', mode='password', fallback=False):
             'subtitle': '可继续修改 Alfred 输入框中的搜索词。',
             'valid': False,
         }, 'search'))
+    if has_otp is None:
+        site_has_otp = any(
+            isinstance(record, dict) and record.get('has_otp', True) is True
+            for record in records
+        ) if records else True
+    else:
+        site_has_otp = bool(has_otp)
     if mode == 'password':
-        switch = ('codes ' + domain + (' ' + needle if needle else ''), '查找此网站的验证码',
-                  '回车选择验证码账号；密码条目也可按 ⌘↩ 直接复制验证码')
-        items.append(action_item(switch[1], switch[2], 'search', icon='otp', query=switch[0]))
+        if site_has_otp and not display:
+            switch = ('codes ' + domain + (' ' + needle if needle else ''), '查找此网站的验证码',
+                      '回车选择验证码账号；有验证码的密码条目也可按 ⌘↩ 直接复制')
+            items.append(action_item(switch[1], switch[2], 'search', icon='otp', query=switch[0]))
     elif not fallback:
         items.append(action_item('返回密码列表', '回车选择要复制的密码',
                                  'search', icon='password', query=domain + (' ' + needle if needle else '')))
@@ -133,8 +176,10 @@ def menu(query, store=None, editor=None):
     if query == 'help':
         return {'items': [
             with_icon({'title': '搜索网站或别名',
-                       'subtitle': '例如 github · ↩ 密码 · ⌘↩ 验证码 · ⌥↩ 别名',
+                       'subtitle': '例如 github · ↩ 复制密码 · ⌘↩ 验证码 · ⌃↩ 显示密码 · ⌥↩ 别名',
                        'valid': False}, 'search'),
+            action_item('显示密码（方便手打）', '输入 pass show 关键词，或直接使用 pshow 关键词',
+                        'search', icon='show', query='show '),
             action_item('管理别名', '查看、重命名或删除已保存的别名',
                         'search', icon='alias', query='alias'),
             action_item('首次使用：初始化', '准备密码扩展', 'setup', icon='setup'),
@@ -171,8 +216,10 @@ def menu(query, store=None, editor=None):
     items = [alias_item(record, management=alias_mode) for record in matches]
     if not query:
         items += [with_icon({'title': '搜索网站或别名',
-                             'subtitle': '输入 github · ↩ 密码 · ⌘↩ 验证码 · ⌥↩ 别名',
+                             'subtitle': '输入 github · ↩ 复制密码 · ⌘↩ 验证码 · ⌃↩ 显示密码 · ⌥↩ 别名',
                              'valid': False}, 'search'),
+                  action_item('显示密码', '需要对照手打时使用，也可直接输入 pshow 关键词',
+                              'search', icon='show', query='show '),
                   action_item('管理别名', '查看、重命名或删除别名',
                               'search', icon='alias', query='alias'),
                   action_item('锁定会话', '清除当前授权与内存缓存',
@@ -198,7 +245,9 @@ def validate_action(action):
     if not isinstance(action, dict) or not isinstance(action.get('action'), str):
         raise BridgeError('操作格式无效。')
     if action['action'] in ('select', 'select_otp', 'begin_alias'):
-        if set(action) != {'action', 'domain', 'identity'} or not isinstance(action['domain'], str):
+        allowed_keys = ({'action', 'domain', 'identity'}, {'action', 'domain', 'identity', 'display'}) if action['action'] == 'select' else ({'action', 'domain', 'identity'},)
+        if (set(action) not in allowed_keys or not isinstance(action['domain'], str) or
+                ('display' in action and type(action['display']) is not bool)):
             raise BridgeError('账号选择操作格式无效。')
         action = dict(action)
         action['identity'] = validate_identity(action['identity'])
@@ -209,10 +258,18 @@ def validate_action(action):
                 type(action['replace']) is not bool):
             raise BridgeError('别名保存操作无效。')
         return dict(action, name=alias_name(action['name']))
+    if action['action'] == 'login' and 'display' in action:
+        if type(action['display']) is not bool:
+            raise BridgeError('操作格式无效。')
+        base = {key: value for key, value in action.items() if key != 'display'}
+        if set(base) not in ({'action', 'query'}, {'action', 'alias'}) or any(not isinstance(value, str) for value in base.values()):
+            raise BridgeError('操作格式无效。')
+        return dict(action)
     allowed = {
         'login': ({'action', 'query'}, {'action', 'alias'}),
         'bind': ({'action', 'name', 'query'},),
         'search': ({'action', 'query'},),
+        'search_show': ({'action', 'query'},),
         'rename': ({'action', 'name'}, {'action', 'name', 'new'}),
         'remove': ({'action', 'name'},),
         'prompt': ({'action'},), 'setup': ({'action'},), 'lock': ({'action'},), 'help': ({'action'},),

@@ -116,6 +116,16 @@ class NativeBridgeTests(unittest.TestCase):
             pw_read = {'cmd': 5, 'qid': 'CmdGetPassword4LoginName', 'url': 'example.invalid',
                        'body': {'ACT': 2, 'URL': 'example.invalid', 'USR': 'fixture-user'}}
             self.assertEqual(session.request(pw_read)['status'], 2)
+        with PasswordSession('example.invalid', '', 'catalog') as session:
+            pw_reply, otp_reply = session.catalog_queries()
+            self.assertEqual(pw_reply['status'], 9)
+            self.assertEqual(otp_reply['status'], 9)
+            pw_read = {'cmd': 5, 'qid': 'CmdGetPassword4LoginName', 'url': 'example.invalid',
+                       'body': {'ACT': 2, 'URL': 'example.invalid', 'USR': 'fixture-user'}}
+            self.assertEqual(session.request(pw_read)['status'], 2)
+            otp_read = {'cmd': 17, 'qid': 'CmdDidFillOneTimeCode',
+                        'body': {'ACT': 2, 'TYPE': 'oneTimeCodes', 'frameURLs': ['https://example.invalid']}}
+            self.assertEqual(session.request(otp_read)['status'], 2)
 
     def test_account_picker_modal_search_and_selection(self):
         script = Path(__file__).resolve().parents[1] / 'src/passwords_bridge/local_ui.js'

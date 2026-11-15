@@ -315,6 +315,7 @@ class BrokerIPCTests(unittest.TestCase):
         self.assertEqual(self.copies, [])
         self.assertTrue(client.metadata(self.root)['prewarm_v1'])
         self.assertTrue(client.metadata(self.root)['pair_rerun_v1'])
+        self.assertTrue(client.metadata(self.root)['otp_presence_v1'])
         copied = client.rpc(request(), self.root)
         self.assertTrue(copied['ok'])
         self.assertEqual(len(self.instances), 1)

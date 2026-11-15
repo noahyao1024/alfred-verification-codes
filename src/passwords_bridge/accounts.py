@@ -50,6 +50,7 @@ class Account:
     identity: dict
     value: str = field(repr=False)
     duplicate: bool = False
+    has_otp: bool = True
 
     @property
     def username(self):

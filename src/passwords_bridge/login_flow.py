@@ -88,18 +88,45 @@ class LoginFlow:
         self.did_otp |= account.kind == 'otp'
         self.manager.log('copied_password' if account.kind == 'password' else 'copied_otp')
 
+    def cached_otp_accounts(self):
+        from .broker import CATALOG_TTL
+        cached = self.manager.catalog_cache.get((self.domain, 'otp'))
+        if (cached and self.manager.clock() - cached[0] <= CATALOG_TTL and
+                self.manager.cache_session_valid()):
+            return list(cached[2])
+        return None
+
+    def account_has_otp(self, primary):
+        if primary.kind != 'password':
+            return False
+        codes = self.cached_otp_accounts()
+        if codes is None:
+            try:
+                codes = self.fetch('otp_list')
+                self.manager.catalog_cache[(self.domain, 'otp')] = (
+                    self.manager.clock(), 'otp', codes, bool(codes))
+            except BridgeError:
+                self.manager.guard()
+                self.manager.log('otp_metadata_unavailable')
+                return True
+        return bool(otp_matches(primary, codes))
+
     def fresh_code(self, primary, identity=None):
         if identity is not None:
             return resolve_identity(self.fetch('otp', primary.username), identity)
         values_loaded = False
-        try:
-            codes = self.fetch('otp_list', primary.username)
-        except BridgeError:
-            self.manager.guard()
-            self.manager.log('otp_metadata_unavailable')
-            # Compatibility fallback is allowed only after the user explicitly
-            # requests an OTP, never while they are merely choosing a password.
-            codes, values_loaded = self.fetch('otp', primary.username), True
+        cached = self.cached_otp_accounts()
+        if cached is not None:
+            codes = [item for item in cached if not primary.username or item.username == primary.username]
+        else:
+            try:
+                codes = self.fetch('otp_list', primary.username)
+            except BridgeError:
+                self.manager.guard()
+                self.manager.log('otp_metadata_unavailable')
+                # Compatibility fallback is allowed only after the user explicitly
+                # requests an OTP, never while they are merely choosing a password.
+                codes, values_loaded = self.fetch('otp', primary.username), True
         matches = otp_matches(primary, codes) if primary.kind == 'password' else codes
         if not matches:
             raise CredentialLookupError('这个账号没有可用验证码。')
@@ -123,7 +150,9 @@ class LoginFlow:
             if identity['kind'] == 'otp':
                 primary = resolve_otp_metadata(self.fetch('otp'), identity)
                 return self.present(primary, False)
-            return self.present(self.load_password(identity), True)
+            primary = self.load_password(identity)
+            has_otp = self.account_has_otp(primary) if self.request['display'] else False
+            return self.present(primary, has_otp)
 
         try:
             passwords = self.fetch('password_list')
@@ -174,7 +203,8 @@ class LoginFlow:
         """Copy one exact Alfred result without opening another account picker."""
         if identity['kind'] == 'password':
             primary = self.load_password(identity)
-            return self.present(primary, True)
+            has_otp = self.account_has_otp(primary) if self.request['display'] else False
+            return self.present(primary, has_otp)
         primary = resolve_otp_metadata(self.fetch('otp', identity['username']), identity)
         return self.present(primary, False)
 

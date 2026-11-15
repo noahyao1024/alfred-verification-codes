@@ -14,6 +14,8 @@ func color(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> NSColor {
 let specs = [
     IconSpec(name: "search", symbol: "magnifyingglass",
              top: color(90, 151, 255), bottom: color(24, 91, 214)),
+    IconSpec(name: "show", symbol: "eye.fill",
+             top: color(104, 128, 255), bottom: color(52, 74, 206)),
     IconSpec(name: "otp", symbol: "timer",
              top: color(77, 211, 115), bottom: color(24, 145, 67)),
     IconSpec(name: "alias", symbol: "tag.fill",

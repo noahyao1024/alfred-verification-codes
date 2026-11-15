@@ -177,15 +177,40 @@ class FrontendTests(unittest.TestCase):
                          {'action': 'login', 'alias': 'localhost'})
         request.assert_not_called()
 
-    def test_selected_alfred_result_goes_directly_to_copy_request(self):
+    def test_selected_alfred_result_copies_silently_by_default_and_honors_show_override(self):
         identity = {'kind': 'password', 'username': 'alice', 'title': 'Personal',
                     'sites': ['example.com']}
         action = {'action': 'select', 'domain': 'example.com', 'identity': identity}
         with patch.object(app, 'request_selected', return_value={'ok': True, 'message': 'copied'}) as selected, \
              patch.dict(os.environ, {'CLEAR_CLIPBOARD_AFTER': '45', 'SESSION_IDLE_SECONDS': '300',
-                                     'SHOW_SECRETS': '1', 'DISPLAY_SECONDS': '45'}):
+                                     'DISPLAY_SECONDS': '45'}, clear=True):
             self.assertEqual(app.interactive(action), (True, 'copied'))
-        selected.assert_called_once_with('example.com', identity, 45, 300, True, 45)
+            selected.assert_called_once_with('example.com', identity, 45, 300, False, 45)
+        with patch.object(app, 'request_selected', return_value={'ok': True, 'message': 'copied'}) as selected, \
+             patch.dict(os.environ, {'CLEAR_CLIPBOARD_AFTER': '45', 'SESSION_IDLE_SECONDS': '300',
+                                     'SHOW_SECRETS': '0', 'DISPLAY_SECONDS': '45'}, clear=True):
+            self.assertEqual(app.interactive(dict(action, display=True)), (True, 'copied'))
+            selected.assert_called_once_with('example.com', identity, 45, 300, True, 45)
+
+    def test_show_menu_supports_pshow_and_pass_show_for_sites_and_aliases(self):
+        identity = {'kind': 'password', 'username': 'alice', 'title': 'Personal',
+                    'sites': ['github.com']}
+        reply = {'ok': True, 'mode': 'password', 'fallback': False, 'has_otp': False,
+                 'accounts': [{'identity': identity, 'duplicate': False, 'has_otp': False}]}
+        with tempfile.TemporaryDirectory() as root:
+            store = app.AliasStore(root)
+            store.put('gh-work', {'domain': 'github.com', 'identity': identity})
+            alias_result = app.show_menu('gh-work', store, standalone=True)
+            self.assertEqual(json.loads(alias_result['items'][0]['arg']),
+                             {'action': 'login', 'alias': 'gh-work', 'display': True})
+            with patch.object(app, 'request_catalog', return_value=reply), \
+                 patch.dict(os.environ, {'SESSION_IDLE_SECONDS': '300'}):
+                site_result = app.direct_menu('show github.com', store)
+            self.assertEqual(len(site_result['items']), 1)
+            self.assertIn('显示并复制密码', site_result['items'][0]['title'])
+            self.assertEqual(json.loads(site_result['items'][0]['arg']),
+                             {'action': 'select', 'domain': 'github.com',
+                              'identity': identity, 'display': True})
 
     def test_otp_shortcut_routes_without_password_display(self):
         identity = {'kind': 'password', 'username': 'alice', 'title': 'Personal', 'sites': ['example.com']}

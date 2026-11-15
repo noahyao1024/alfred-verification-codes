@@ -37,7 +37,7 @@ def catalog_request(**changes):
 
 def select_request(identity, **changes):
     return dict({'op': 'select', 'domain': 'example.com', 'identity': identity,
-                 'clear_after': 0, 'idle_seconds': 300, 'display': True,
+                 'clear_after': 0, 'idle_seconds': 300, 'display': False,
                  'display_seconds': 45}, **changes)
 
 
@@ -171,29 +171,93 @@ class FlowTests(unittest.TestCase):
         self.manager.login(login_request(save_alias='personal'))
         self.ui = UI()
         self.factory.passwords = [PASSWORDS[1], dict(PASSWORDS[0], PWD='NEW-SECRET')]
-        self.manager.login(login_request(domain='', alias='personal'))
+        self.manager.login(login_request(domain='', alias='personal', display=False))
         self.assertEqual(self.copies, ['NEW-SECRET'])
         self.assertEqual(self.ui.pickers, [])
+        self.assertEqual(self.ui.panels, [])
         self.assertEqual(self.instances[0].password_queries, 1)
         self.assertEqual(self.instances[0].password_metadata_queries, 1)  # initial binding only
         self.assertEqual(self.instances[0].otp_metadata_queries, 0)
 
-    def test_catalog_returns_passwords_before_any_otp_query_and_caches_metadata(self):
+    def test_catalog_batches_password_and_otp_metadata_and_caches_both(self):
         first = self.manager.catalog(catalog_request())
         self.manager.catalog_cache = {
             key: (cached[0] - 60, *cached[1:])
             for key, cached in self.manager.catalog_cache.items()
         }
         second = self.manager.catalog(catalog_request())
+        otp_cached = self.manager.catalog(catalog_request(mode='otp'))
         self.assertEqual(first['mode'], 'password')
+        self.assertTrue(first['has_otp'])
+        self.assertEqual([item['has_otp'] for item in first['accounts']], [True, False])
         self.assertEqual(len(first['accounts']), 2)
         self.assertTrue(first['paired_now'])
         self.assertFalse(second['paired_now'])
         self.assertEqual(first | {'paired_now': False}, second)
+        self.assertEqual(otp_cached['mode'], 'otp')
+        self.assertFalse(otp_cached['paired_now'])
         self.assertEqual(self.instances[0].password_metadata_queries, 1)
-        self.assertEqual(self.instances[0].otp_metadata_queries, 0)
+        self.assertEqual(self.instances[0].otp_metadata_queries, 1)
         self.assertNotIn('SECRET-', json.dumps(first))
         self.assertIn('catalog_cache_hit', self.logs)
+
+    def test_otp_shortcut_reuses_cached_catalog_metadata_without_second_scan(self):
+        catalog = self.manager.catalog(catalog_request())
+        identity = catalog['accounts'][0]['identity']
+        result = self.manager.select(select_request(identity, op='select_otp'))
+        self.assertTrue(result['ok'])
+        self.assertEqual(self.copies, ['000001'])
+        self.assertEqual(self.instances[0].otp_metadata_queries, 1)  # from catalog only
+        self.assertEqual(self.instances[0].otp_queries, 1)
+
+    def test_show_mode_hides_otp_button_when_account_has_no_otp(self):
+        catalog = self.manager.catalog(catalog_request())
+        bob = catalog['accounts'][1]['identity']
+        self.ui = UI(actions=['done'])
+        self.manager.select(select_request(bob, display=True))
+        self.assertEqual(self.ui.panels[0][2], False)  # has_otp is False for bob
+        self.store.put('bob-work', {'domain': 'example.com', 'identity': bob})
+        self.manager.catalog_cache.clear()
+        self.ui = UI(actions=['done'])
+        self.manager.login(login_request(domain='', alias='bob-work', display=True))
+        self.assertEqual(self.ui.panels[0][2], False)
+
+    def test_warm_real_session_uses_single_turn_parallel_catalog_fast(self):
+        from passwords_bridge.session import PasswordSession
+        calls = []
+        class FastRealSession(PasswordSession):
+            paired = False
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def state(self): return {'paired': self.paired, 'nativeReady': True}
+            def set_scope(self, domain, username, mode): calls.append(('set_scope', domain, mode))
+            def clear_scope(self): calls.append(('clear_scope',))
+            def pair(self):
+                calls.append(('pair',))
+                self.paired = True
+            def catalog_queries(self):
+                calls.append(('catalog_queries',))
+                return ({'data': {'STATUS': 0, 'Entries': list(PASSWORDS)}},
+                        {'data': {'STATUS': 0, 'Entries': []}})
+            def catalog_fast(self, domain):
+                calls.append(('catalog_fast', domain))
+                return {'paired': self.paired,
+                        'password': {'data': {'STATUS': 0, 'Entries': list(PASSWORDS)}},
+                        'otp': {'data': {'STATUS': 0, 'Entries': []}}}
+        manager = broker.SessionManager(Monitor(), FastRealSession,
+                                        lambda value, seconds: None, log=self.logs.append)
+        try:
+            first = manager.catalog(catalog_request(domain='first.example'))
+            second = manager.catalog(catalog_request(domain='second.example'))
+        finally:
+            manager.close_session()
+        self.assertFalse(first['has_otp'])
+        self.assertFalse(second['has_otp'])
+        self.assertTrue(all(not item['has_otp'] for item in second['accounts']))
+        # Second domain on an already paired session runs in one catalog_fast turn,
+        # without extra set_scope or clear_scope CDP round-trips.
+        self.assertEqual(calls[-1], ('catalog_fast', 'second.example'))
+        self.assertNotIn(('set_scope', 'second.example', 'catalog'), calls)
 
     def test_selected_password_revalidates_apple_session_before_cache_use(self):
         identity = self.manager.catalog(catalog_request())['accounts'][0]['identity']
@@ -254,7 +318,7 @@ class FlowTests(unittest.TestCase):
         result = self.manager.catalog(catalog_request())
         self.assertEqual(result, {
             'ok': True, 'mode': 'password', 'accounts': [], 'fallback': False,
-            'paired_now': True,
+            'has_otp': False, 'paired_now': True,
         })
         self.assertEqual(self.instances[0].password_metadata_queries, 1)
         self.assertEqual(self.instances[0].otp_metadata_queries, 1)
@@ -524,6 +588,13 @@ class AliasAndMenuTests(unittest.TestCase):
                          {'action': 'search', 'query': 'codes example.com ali'})
         fallback = catalog_menu('example.com', accounts, mode='otp', fallback=True)
         self.assertEqual(len(fallback['items']), 1)
+        no_otp_accounts = [{'identity': accounts[0]['identity'], 'duplicate': False, 'has_otp': False}]
+        no_otp = catalog_menu('example.com', no_otp_accounts, '', 'password', has_otp=False)
+        self.assertEqual(len(no_otp['items']), 1)  # hides '查找此网站的验证码'
+        self.assertFalse(no_otp['items'][0]['mods']['cmd']['valid'])
+        self.assertEqual(validate_action(json.loads(no_otp['items'][0]['mods']['ctrl']['arg'])),
+                         {'action': 'select', 'domain': 'example.com',
+                          'identity': accounts[0]['identity'], 'display': True})
 
     def test_performance_log_accepts_only_allowlisted_shape_and_summarizes(self):
         self.assertEqual(format_log_event('perf|catalog_total|123'), 'perf catalog_total 123')

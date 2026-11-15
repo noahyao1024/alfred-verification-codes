@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 : "${GH_USER:?Set GH_USER to your GitHub username}"
 : "${AUTHOR:?Set AUTHOR to your name}"
 REPO="${REPO:-alfred-verification-codes}"
-VERSION="${VERSION:-0.8.12}"
+VERSION="${VERSION:-0.8.13}"
 NAME="Passwords Quick Copy"
 DESCRIPTION="Alfred workflow to copy Apple Passwords passwords and verification codes"
 

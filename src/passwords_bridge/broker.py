@@ -357,9 +357,73 @@ class SessionManager:
 
     @staticmethod
     def _public_accounts(accounts):
-        return [{'identity': dict(account.identity), 'duplicate': account.duplicate} for account in accounts]
+        return [{'identity': dict(account.identity), 'duplicate': account.duplicate,
+                 'has_otp': account.has_otp} for account in accounts]
+
+    def _metadata_catalog(self, domain):
+        """Fetch password and OTP metadata together; use one parallel worker turn on real sessions."""
+        from .accounts import account_list
+        from .session import decode_entries
+        self.start_session(domain, '', 'catalog')
+        if (isinstance(self.session, PasswordSession) and
+                type(self.session).entries is PasswordSession.entries):
+            paired_now = False
+            pw_raw = otp_raw = None
+            if not self.prewarmed_unpaired:
+                started = self.perf_clock()
+                self.guard()
+                fast = self.session.catalog_fast(domain)
+                if isinstance(fast, dict) and fast.get('paired'):
+                    self.log('password_metadata_requested')
+                    self.log('otp_metadata_requested')
+                    self.record_performance('password_metadata', started)
+                    self.record_performance('otp_metadata', started)
+                    pw_raw, otp_raw = fast.get('password'), fast.get('otp')
+            if pw_raw is None:
+                paired_now = self.ensure_session(
+                    domain, '', 'catalog', complete_catalog_pairing=True)
+                started = self.perf_clock()
+                try:
+                    self.guard()
+                    self.log('password_metadata_requested')
+                    self.log('otp_metadata_requested')
+                    pw_raw, otp_raw = self.session.catalog_queries()
+                finally:
+                    self.record_performance('password_metadata', started)
+                    self.record_performance('otp_metadata', started)
+                    if self.session:
+                        self.session.clear_scope()
+            pw_accounts = account_list(
+                decode_entries(pw_raw), 'password', domain, metadata_only=True)
+            otp_status = (otp_raw.get('data', {}).get('STATUS', otp_raw.get('status'))
+                          if isinstance(otp_raw, dict) else None)
+            if otp_status == 9:
+                decode_entries(otp_raw)
+            try:
+                otp_accounts = account_list(
+                    decode_entries(otp_raw), 'otp', domain, metadata_only=True)
+                otp_known = True
+            except BridgeError:
+                self.log('otp_metadata_unavailable')
+                otp_accounts = []
+                otp_known = False
+            return pw_accounts, otp_accounts, otp_known, paired_now
+
+        pw_accounts, paired_now = self._metadata_accounts(domain, 'password')
+        try:
+            otp_accounts, otp_paired = self._metadata_accounts(domain, 'otp')
+            paired_now |= otp_paired
+            otp_known = True
+        except (RequestCancelled, SessionExpired):
+            raise
+        except BridgeError:
+            self.log('otp_metadata_unavailable')
+            otp_accounts = []
+            otp_known = False
+        return pw_accounts, otp_accounts, otp_known, paired_now
 
     def catalog(self, request):
+        from .accounts import otp_matches
         request = validate_catalog(request)
         self.guard()
         self.busy = True
@@ -375,28 +439,54 @@ class SessionManager:
             if (cached and self.clock() - cached[0] <= CATALOG_TTL and
                     self.cache_session_valid()):
                 self.log('catalog_cache_hit')
+                site_has_otp = cached[3] if len(cached) > 3 else True
                 return {'ok': True, 'mode': cached[1],
                         'accounts': self._public_accounts(cached[2]),
                         'fallback': request['mode'] == 'password' and cached[1] == 'otp',
+                        'has_otp': site_has_otp,
                         'paired_now': False}
-            mode = request['mode']
+            if request['mode'] == 'otp':
+                used_scope = True
+                accounts, paired_now = self._metadata_accounts(request['domain'], 'otp')
+                used_scope = False
+                site_has_otp = bool(accounts)
+                now = self.clock()
+                self.catalog_cache[(request['domain'], 'otp')] = (
+                    now, 'otp', accounts, site_has_otp)
+                return {'ok': True, 'mode': 'otp',
+                        'accounts': self._public_accounts(accounts),
+                        'fallback': False, 'has_otp': site_has_otp,
+                        'paired_now': paired_now}
             used_scope = True
-            accounts, paired_now = self._metadata_accounts(request['domain'], mode)
-            # The common password path returns as soon as password metadata is
-            # ready. Only an empty password catalogue pays for an OTP query.
+            pw_accounts, otp_accounts, otp_known, paired_now = self._metadata_catalog(
+                request['domain'])
+            used_scope = False
+            if otp_known:
+                for account in pw_accounts:
+                    account.has_otp = bool(otp_matches(account, otp_accounts))
+                site_has_otp = bool(otp_accounts)
+            else:
+                for account in pw_accounts:
+                    account.has_otp = True
+                site_has_otp = True
             # Keep an entirely empty lookup in password mode: reporting it as
             # an OTP result makes a missing website look like a code-only
             # search and hides the actual website-scoped API boundary.
-            if mode == 'password' and not accounts:
-                otp_accounts, otp_paired = self._metadata_accounts(request['domain'], 'otp')
-                paired_now |= otp_paired
-                if otp_accounts:
-                    mode, accounts = 'otp', otp_accounts
-            cached = (self.clock(), mode, accounts)
+            if pw_accounts:
+                mode, accounts = 'password', pw_accounts
+            elif otp_accounts:
+                mode, accounts = 'otp', otp_accounts
+            else:
+                mode, accounts = 'password', []
+            now = self.clock()
+            if otp_known:
+                self.catalog_cache[(request['domain'], 'otp')] = (
+                    now, 'otp', otp_accounts, site_has_otp)
+            cached = (now, mode, accounts, site_has_otp)
             self.catalog_cache[key] = cached
             self.catalog_cache[(request['domain'], mode)] = cached
             return {'ok': True, 'mode': mode, 'accounts': self._public_accounts(accounts),
-                    'fallback': request['mode'] == 'password' and mode == 'otp',
+                    'fallback': mode == 'otp', 'has_otp': site_has_otp,
                     'paired_now': paired_now}
         except WarmSessionRequestCancelled:
             warm_cancel = True
@@ -547,7 +637,8 @@ def metadata_write(root, token):
                        'credential_cache': True, 'alfred_catalog': True,
                        'performance_v1': True, 'native_ready_v1': True,
                        'prewarm_v1': True, 'quick_actions_v1': True,
-                       'pair_rerun_v1': True, 'cache_validation_v1': True}, stream)
+                       'pair_rerun_v1': True, 'cache_validation_v1': True,
+                       'otp_presence_v1': True}, stream)
         os.replace(temporary, root / 'session.json')
     finally:
         Path(temporary).unlink(missing_ok=True)

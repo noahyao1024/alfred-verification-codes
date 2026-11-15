@@ -40,12 +40,14 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 Use **one entry point: `pass`**. Start with `pass github`; it transparently queries
 `github.com`, and matching account
 metadata appears directly in Alfred and remains searchable in its existing input.
-Press Return on **复制密码** to copy the password and show it in a movable
-floating window for manual typing. Press Command-Return on that account to copy
-its current verification code directly, or click **复制验证码** in the password
-window. Copying a code closes the window and finishes immediately; it never
-opens a code display. Choose **查找此网站的验证码** to browse the site's code
-accounts separately; when no password exists, the workflow falls back to them
+Press Return on **复制密码** to copy the password directly to the clipboard with no
+popup window. When you need to view a password on screen for manual typing, use
+**`pshow github`**, **`pass show github`**, or press Control-Return on the account.
+Press Command-Return on an account that has a verification code to copy its
+current code directly, or click **复制验证码** in the `pshow` window. Verification-code
+rows and buttons are hidden automatically when the website or account has no code.
+When a website has verification codes, choose **查找此网站的验证码** to browse them
+separately; when no password exists, the workflow falls back to them
 automatically. A broader-domain or multiple-code match still asks you to select
 the intended code.
 
@@ -62,7 +64,8 @@ bind a short Alfred alias.
 | Alfred input | Result |
 | --- | --- |
 | `pass` | Show saved aliases/actions and prewarm the isolated browser without pairing |
-| `pass github` | Query `github.com` directly and show its password accounts in Alfred |
+| `pass github` | Query `github.com` directly and copy the selected password silently |
+| `pshow github` or `pass show github` | Copy the selected password and open the floating card for manual typing |
 | `pass github.com` or `pass https://github.com` | Use the same keyword path without a separate URL mode |
 | `pass codes github` | Show verification-code accounts in Alfred |
 | `pass github me@example.com` | Filter the returned account list by username/title/site text |
@@ -111,10 +114,11 @@ browser profile and anonymous CDP pipes; no TCP debugging listener is opened.
 The broker's Unix socket requires the same OS user and a per-session token in a
 private directory. It returns account metadata for the Alfred result list, but
 copies secrets within the broker and never returns passwords or codes to Alfred.
-On explicit user request, the copied password is
-displayed in a temporary native window for manual typing; it is not put into
-Notification Center history or debugging output. Turn off **Show password after copy**
-(`SHOW_SECRETS`) to copy passwords directly without a window. Codes always copy
+By default, `pass` copies passwords directly to the clipboard without opening a
+window. Use `pshow`, `pass show`, or Control-Return when you explicitly want the
+temporary native window for manual typing (or enable **Always show password after
+copy** / `SHOW_SECRETS` in Workflow Configuration). Plaintext is never put into
+Notification Center history or debugging output. Codes always copy
 directly, regardless of that setting. Set
 `DISPLAY_SECONDS` (10–180, default 45) to change the window timeout. Screen viewers
 can see the window. It closes when the operation is cancelled/locked or times out.
@@ -217,6 +221,14 @@ this shipped once with a generator that had never been verified.
 count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
+
+Version 0.8.13 copies passwords silently to the clipboard by default instead of
+opening a floating window on every Return. Explicit manual-typing display moves
+to `pshow`, `pass show`, and Control-Return. Password searches now pipeline
+Apple's ghost-search password (`cmd 4`) and OTP (`cmd 16`) metadata in a single
+parallel worker turn (one CDP round-trip on warm sessions, zero Touch ID),
+caching both lists at once and hiding verification-code entries/buttons whenever
+an account or website has no verification code.
 
 Version 0.8.12 checks Apple's pairing state before serving cached account lists
 or passwords, including alias and selected-account copies. An invalid pairing

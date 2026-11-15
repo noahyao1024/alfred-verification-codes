@@ -10,7 +10,7 @@ REPO = os.environ.get("REPO", "alfred-verification-codes")
 # Must track the release tag: Alfred shows this and uses it for update checks,
 # so a bundle claiming one version inside a differently tagged release is a
 # real mismatch.
-VERSION = os.environ.get("VERSION", "0.8.12")
+VERSION = os.environ.get("VERSION", "0.8.13")
 SRC = os.path.join(HERE, "src")
 
 NOTIFY = "A1B2C3D4-0000-0000-0000-000000000006"
@@ -27,6 +27,7 @@ KW_PAIR = "A1B2C3D4-0000-0000-0000-000000000012"
 S_PAIR = "A1B2C3D4-0000-0000-0000-000000000013"
 KW_LOCK = "A1B2C3D4-0000-0000-0000-000000000014"
 S_LOCK = "A1B2C3D4-0000-0000-0000-000000000015"
+KW_SHOW = "A1B2C3D4-0000-0000-0000-000000000016"
 
 OPT = 524288
 
@@ -93,8 +94,11 @@ objects = [
         "version": 1,
     },
     scriptfilter(KW_PASSWORD, "{var:passwordkeyword}", "Passwords Quick Copy",
-                 "搜索网站或别名；回车复制密码",
+                 "搜索网站或别名；回车静默复制密码到剪贴板",
                  '/usr/bin/python3 -I apple-passwords.py --menu "$1"'),
+    scriptfilter(KW_SHOW, "{var:showkeyword}", "显示并复制 Apple Passwords 密码",
+                 "搜索网站或别名；回车复制密码并打开明文浮窗",
+                 '/usr/bin/python3 -I apple-passwords.py --show-menu "$1"'),
     runscript(S_PASSWORD, '/usr/bin/python3 -I apple-passwords.py --act "$1"'),
     keyword(KW_APP_OTP, "{var:appleotpkeyword}", "复制 Apple Passwords 验证码",
             "输入网站域名；验证码直接来自系统「密码」", argumenttype=0),
@@ -108,7 +112,7 @@ objects = [
 ]
 
 for obj in objects:
-    if obj['uid'] == KW_PASSWORD:
+    if obj['uid'] in (KW_PASSWORD, KW_SHOW):
         obj['config'].update({'scriptargtype': 1, 'alfredfiltersresults': False,
                               'runningsubtext': '正在查找账号…'})
 
@@ -120,6 +124,7 @@ connections = {
     KW_ADD: [conn(S_ADD)],
     S_ADD: [conn(NOTIFY)],
     KW_PASSWORD: [conn(S_PASSWORD)],
+    KW_SHOW: [conn(S_PASSWORD)],
     S_PASSWORD: [conn(NOTIFY)],
     KW_APP_OTP: [conn(S_APP_OTP)],
     S_APP_OTP: [conn(NOTIFY)],
@@ -136,27 +141,33 @@ uidata = {
     KW_ADD: {"xpos": 40, "ypos": 260},
     S_ADD: {"xpos": 300, "ypos": 260},
     NOTIFY: {"xpos": 560, "ypos": 140},
-    KW_PASSWORD: {"xpos": 40, "ypos": 400},
-    S_PASSWORD: {"xpos": 300, "ypos": 400},
-    KW_APP_OTP: {"xpos": 40, "ypos": 540},
-    S_APP_OTP: {"xpos": 300, "ypos": 540},
-    KW_PAIR: {"xpos": 40, "ypos": 680},
-    S_PAIR: {"xpos": 300, "ypos": 680},
-    KW_LOCK: {"xpos": 40, "ypos": 820},
-    S_LOCK: {"xpos": 300, "ypos": 820},
+    KW_PASSWORD: {"xpos": 40, "ypos": 390},
+    KW_SHOW: {"xpos": 40, "ypos": 510},
+    S_PASSWORD: {"xpos": 300, "ypos": 450},
+    KW_APP_OTP: {"xpos": 40, "ypos": 650},
+    S_APP_OTP: {"xpos": 300, "ypos": 650},
+    KW_PAIR: {"xpos": 40, "ypos": 790},
+    S_PAIR: {"xpos": 300, "ypos": 790},
+    KW_LOCK: {"xpos": 40, "ypos": 930},
+    S_LOCK: {"xpos": 300, "ypos": 930},
 }
 
 # Gallery requires configuration to be exposed as Workflow Configuration.
 userconfig = [
     {
         "config": {"default": "pass", "placeholder": "pass", "required": True, "trim": True},
-        "description": "统一入口：pass 关键词、pass 别名、pass alias、pass lock。",
+        "description": "统一入口：pass 关键词、pass 别名、pass show、pass alias、pass lock。",
         "label": "Main keyword", "type": "textfield", "variable": "passwordkeyword",
     },
     {
-        "config": {"default": True, "required": False, "text": "复制密码后显示明文浮窗，方便手打"},
-        "description": "只影响密码；验证码始终直接复制，不弹窗。关闭此项时密码也直接复制。",
-        "label": "Show password after copy", "type": "checkbox", "variable": "SHOW_SECRETS",
+        "config": {"default": "pshow", "placeholder": "pshow", "required": True, "trim": True},
+        "description": "需要对照手打时显示并复制密码：pshow 关键词 或 pshow 别名（也可在 pass 中用 pass show 或 ⌃↩）。",
+        "label": "Show password keyword", "type": "textfield", "variable": "showkeyword",
+    },
+    {
+        "config": {"default": False, "required": False, "text": "普通 pass 复制密码后也总是显示明文浮窗"},
+        "description": "默认关闭：pass 直接静默复制到剪贴板；需要展示时用 pshow、pass show 或 ⌃↩。",
+        "label": "Always show password after copy", "type": "checkbox", "variable": "SHOW_SECRETS",
     },
     {
         "config": {"default": "45", "placeholder": "45", "required": True, "trim": True},
@@ -221,12 +232,12 @@ Requires macOS Sequoia or later. No Accessibility permission is needed.
 * A saved alias prefix shows local matches without a website request. Choose the website result to search there; `pass @prefix` searches aliases only.
 * Apple exposes accounts by website. Entries with no Website field cannot be read through its browser helper; an empty bare-keyword search explains this directly.
 * `pass codes github`: show verification-code accounts on demand; Return copies a code directly.
-* Return on a password account copies it and opens a temporary window for manual typing. \
-Command-Return copies its matching code directly. The Copy Verification Code button in the password window \
-also copies the code and closes the window. Codes never open a value window.
+* Return on a password account copies it directly to the clipboard with no popup window. \
+Use `pshow github`, `pass show github`, or Control-Return when you want the temporary floating card for manual typing. \
+Command-Return copies the matching code directly when the account has one. Verification-code actions and buttons are hidden when no code exists.
 * Option-Return on an account or Set Alias in the password window opens `pass alias save ` in Alfred's own input field. \
 Type a name, check the account preview, and press Return; then use `pass gh-work` to reuse that account.
-* Normal alias results use Command-Return for a code and Option-Return to rename.
+* Normal alias results copy directly on Return, use Control-Return to display the password, Command-Return for a code, and Option-Return to rename.
 * `pass alias`: list aliases; Command-Return renames, Option-Return removes an alias.
 * `pass alias add gh-work github.com [username]`: bind an alias without copying a secret.
 * `pass setup` prepares the extension; `pass lock` closes the active session.
@@ -292,9 +303,9 @@ wf = {
     "uidata": uidata,
     "userconfigurationconfig": userconfig,
     "variables": {"otpkeyword": "otp", "otpaddkeyword": "otpadd",
-                  "passwordkeyword": "pass", "appleotpkeyword": "pcode",
+                  "passwordkeyword": "pass", "showkeyword": "pshow", "appleotpkeyword": "pcode",
                   "pairkeyword": "pwsetup", "lockkeyword": "pwlock", "SESSION_IDLE_SECONDS": "1800",
-                  "SHOW_SECRETS": "1", "DISPLAY_SECONDS": "45",
+                  "SHOW_SECRETS": "0", "DISPLAY_SECONDS": "45",
                   "CLEAR_CLIPBOARD_AFTER": "45"},
     "variablesdontexport": [],
     "version": VERSION,

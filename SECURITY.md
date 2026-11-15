@@ -1,10 +1,10 @@
-# Security scope of version 0.8.12
+# Security scope of version 0.8.13
 
 This edition keeps pairing briefly so consecutive password/OTP copies do not each
 require a PIN. This intentionally retains authorization longer than 0.6.
 It is not an independently audited password manager or a cryptographic rewrite.
 
-| Boundary | Version 0.8.12 behavior |
+| Boundary | Version 0.8.13 behavior |
 | --- | --- |
 | Browser control | Inherited anonymous CDP pipes; no TCP debugging listener |
 | Session lifetime | 30 minutes idle by default (30–1800 seconds configurable), at most 30 minutes total |
@@ -17,7 +17,7 @@ It is not an independently audited password manager or a cryptographic rewrite.
 | Extension | Exact pinned archive hash; explicit setup; no silent runtime replacement |
 | Clipboard | Concealed/transient markers and generation-based timed clearing; cleanup retains no credential |
 | Account UI | Searchable Alfred results show username/title/sites; aliases and selected results bind exact metadata, not a result index or password hash |
-| Manual-entry display | Passwords may appear in a transient native floating window; no Notification Center record; can be disabled; OTP copies never open a value window |
+| Manual-entry display | Disabled by default (`pass` copies silently); explicit `pshow` / `pass show` / Control-Return opens a transient native floating window; no Notification Center record; OTP copies never open a value window |
 
 The broker serializes copies, rechecks lock/lifetime during browser waits and
 before clipboard delivery, and clears operation scope afterward. A lookup that
@@ -37,11 +37,11 @@ can otherwise erase an in-flight challenge. Native readiness is reset for every
 new native port. A stalled challenge fails after 12 seconds rather than starting
 a concurrent SRP exchange; PIN verification is never bypassed.
 
-The default Alfred search queries password metadata first (`cmd 4` for login
-names), which does not trigger macOS Touch ID, and returns that metadata—not
-secret values—to Alfred's result list. OTP metadata (`cmd 16`) is deferred until
-the user asks for verification-code accounts or presses the OTP control; it is
-queried automatically only when no password account exists. Only the selected
+The default Alfred search pipelines Apple's metadata-only password listing
+(`cmd 4`) and OTP listing (`cmd 16`) concurrently in a single worker turn,
+neither of which triggers macOS Touch ID, and returns only account metadata plus
+boolean OTP presence—never secret values—to Alfred's result list. Secret reads
+(`cmd 5`, `cmd 17`) and writes remain rejected under `catalog` scope. Only the selected
 account's password is read via `cmd 5` after selection (or immediately for a
 bound password alias), and once read it is cached in broker memory for the
 duration of the active session (cleared on idle expiry, screen lock, sleep,

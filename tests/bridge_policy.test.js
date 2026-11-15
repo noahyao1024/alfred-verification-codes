@@ -99,5 +99,21 @@ function fixture(operation = 'password', autoReply = true) {
     const interrupted = disconnected.request(pw);
     disconnected.disconnect();
     assert.equal((await interrupted).status, 9);
+    const catalog = fixture('catalog');
+    assert.equal((await catalog.request(pw)).status, 2);
+    assert.equal((await catalog.request(otp)).status, 2);
+    const [pwCatalog, otpCatalog] = await Promise.all([
+        catalog.request(pwMetadata),
+        catalog.request(metadata),
+    ]);
+    assert.equal(pwCatalog.data.STATUS, 0);
+    assert.equal(otpCatalog.data.STATUS, 0);
+    const slowCatalog = fixture('catalog', false);
+    const p1 = slowCatalog.request(pwMetadata);
+    const dup = await slowCatalog.request(pwMetadata);
+    assert.equal(dup.status, 100);
+    const p2 = slowCatalog.request(metadata);
+    slowCatalog.disconnect();
+    assert.deepEqual([(await p1).status, (await p2).status], [9, 9]);
     console.log('Bridge policy tests passed');
 })().catch(error => {console.error(error); process.exitCode = 1;});

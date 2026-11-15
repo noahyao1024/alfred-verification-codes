@@ -14,7 +14,7 @@
   const NATIVE_TIMEOUT_MS = CONFIG.nativeTimeoutMs;
   const UNPAIRED = CONFIG.wireUnpaired;
 
-  let pending = null; // { resolve, cmd, timer }
+  let pending = new Map(); // cmd -> { resolve, timer }
 
   // Keep the worker alive: swallow stray errors/rejections from the extension's own
   // code rather than let the runtime tear it down (which would drop the pairing).
@@ -34,9 +34,17 @@
     return { paired: state === "SessionKeySet" && nativeReady, state: state, nativeReady: nativeReady };
   }
 
-  function clearPending() {
-    if (pending) clearTimeout(pending.timer);
-    pending = null;
+  function clearPending(cmd) {
+    if (cmd === undefined) {
+      for (const entry of pending.values()) clearTimeout(entry.timer);
+      pending.clear();
+      return;
+    }
+    const entry = pending.get(cmd);
+    if (entry) {
+      clearTimeout(entry.timer);
+      pending.delete(cmd);
+    }
   }
 
   function pair(message) {
@@ -88,13 +96,15 @@
     const body = message.body || {};
     const passwordRead = CONFIG.operation === "password" && message.cmd === 5 && message.qid === "CmdGetPassword4LoginName" &&
       body.ACT === 2 && body.URL === CONFIG.domain && body.USR === CONFIG.username;
-    const passwordList = CONFIG.operation === "password_list" && message.cmd === 4 && message.qid === "CmdGetLoginNames4URL" &&
+    const passwordList = (CONFIG.operation === "password_list" || CONFIG.operation === "catalog") &&
+      message.cmd === 4 && message.qid === "CmdGetLoginNames4URL" &&
       body.ACT === 5 && body.URL === CONFIG.domain && message.url === CONFIG.domain &&
       Object.keys(body).length === 2;
     const otpRead = CONFIG.operation === "otp" && message.cmd === 17 && message.qid === "CmdDidFillOneTimeCode" &&
       body.ACT === 2 && body.TYPE === "oneTimeCodes" && Array.isArray(body.frameURLs) &&
       body.frameURLs.length === 1 && body.frameURLs[0] === "https://" + CONFIG.domain;
-    const otpList = CONFIG.operation === "otp_list" && message.cmd === 16 && message.qid === "CmdDidFillOneTimeCode" &&
+    const otpList = (CONFIG.operation === "otp_list" || CONFIG.operation === "catalog") &&
+      message.cmd === 16 && message.qid === "CmdDidFillOneTimeCode" &&
       body.ACT === 5 && body.TYPE === "oneTimeCodes" && Array.isArray(body.frameURLs) &&
       body.frameURLs.length === 1 && body.frameURLs[0] === "https://" + CONFIG.domain;
     if (!CONFIG.domain || !(passwordRead || passwordList || otpRead || otpList))
@@ -121,8 +131,8 @@
     if (typeof g_theState === "undefined" || g_theState !== "SessionKeySet") {
       return { status: INVALID_SESSION, error: UNPAIRED };
     }
-    if (pending) {
-      // The caller serializes requests, so this is defensive only.
+    if (pending.has(message.cmd)) {
+      // Only distinct metadata commands (4 and 16) may overlap during catalog.
       return { status: SERVER_ERROR, error: "busy" };
     }
 
@@ -134,15 +144,14 @@
     }
 
     return await new Promise((resolve) => {
-      pending = {
+      pending.set(message.cmd, {
         resolve: resolve,
-        cmd: message.cmd,
         timer: setTimeout(() => {
-          const stuck = pending;
-          clearPending();
+          const stuck = pending.get(message.cmd);
+          clearPending(message.cmd);
           if (stuck) stuck.resolve({ status: SERVER_ERROR, error: "native helper timed out" });
         }, NATIVE_TIMEOUT_MS),
-      };
+      });
       try {
         g_nativeAppPort.postMessage({
           cmd: message.cmd,
@@ -152,7 +161,7 @@
           payload: JSON.stringify({ QID: message.qid, SMSG: smsg }),
         });
       } catch (error) {
-        clearPending();
+        clearPending(message.cmd);
         resolve({ status: SERVER_ERROR, error: String(error) });
       }
     });
@@ -162,17 +171,18 @@
   function reply(message) {
     if (!message || typeof message !== "object") return;
     if (message.__passwordsNativeDisconnected === true) {
-      if (!pending) return;
-      const resolve = pending.resolve;
+      if (!pending.size) return;
+      const waiters = Array.from(pending.values(), (entry) => entry.resolve);
       clearPending();
-      resolve({ status: INVALID_SESSION, error: "native helper disconnected" });
+      for (const resolve of waiters) {
+        resolve({ status: INVALID_SESSION, error: "native helper disconnected" });
+      }
       return;
     }
-    if (!pending) return;
-    const matches = message.cmd === pending.cmd;
-    if (!matches) return;
-    const resolve = pending.resolve;
-    clearPending();
+    const entry = pending.get(message.cmd);
+    if (!entry) return;
+    const resolve = entry.resolve;
+    clearPending(message.cmd);
     try {
       const data = message.payload
         ? JSON.parse(g_secretSession.parseSMSG(message.payload.SMSG))

@@ -15,7 +15,7 @@ from .extension import EXTENSION_ID, NATIVE_MANIFEST, data_dir, prepare
 class PasswordSession:
     def __init__(self, domain, username="", mode="password", guard=None):
         self.domain, self.username = domain, username
-        if mode not in ("password", "password_list", "otp", "otp_list"):
+        if mode not in ("password", "password_list", "otp", "otp_list", "catalog"):
             raise BridgeError("不支持的读取类型。")
         self.mode = mode
         self.guard = guard
@@ -73,7 +73,7 @@ class PasswordSession:
         return self.browser.evaluate("globalThis.__passwordsBridge.state()", self.worker, timeout=3)
 
     def set_scope(self, domain, username, mode):
-        if mode not in ('password', 'password_list', 'otp', 'otp_list'):
+        if mode not in ('password', 'password_list', 'otp', 'otp_list', 'catalog'):
             raise BridgeError('不支持的读取类型。')
         self.domain, self.username, self.mode = domain, username, mode
         scope = json.dumps({'domain': domain, 'username': username, 'operation': mode})
@@ -146,22 +146,50 @@ return text returned of answer'''
                 dialog.wait(timeout=5)
             dialog.stdout.close()
 
-    def query(self, mode):
+    def _query_message(self, mode, domain=None, username=None):
+        target_domain = self.domain if domain is None else domain
+        target_user = self.username if username is None else username
         if mode == "password":
-            message = {"cmd": 5, "qid": "CmdGetPassword4LoginName", "tabId": 0, "frameId": 0,
-                       "url": self.domain,
-                       "body": {"ACT": 2, "URL": self.domain, "USR": self.username}}
-        elif mode == "password_list":
-            message = {"cmd": 4, "qid": "CmdGetLoginNames4URL", "tabId": 0, "frameId": 0,
-                       "url": self.domain,
-                       "body": {"ACT": 5, "URL": self.domain}}
-        elif mode in ("otp", "otp_list"):
+            return {"cmd": 5, "qid": "CmdGetPassword4LoginName", "tabId": 0, "frameId": 0,
+                    "url": target_domain,
+                    "body": {"ACT": 2, "URL": target_domain, "USR": target_user}}
+        if mode == "password_list":
+            return {"cmd": 4, "qid": "CmdGetLoginNames4URL", "tabId": 0, "frameId": 0,
+                    "url": target_domain,
+                    "body": {"ACT": 5, "URL": target_domain}}
+        if mode in ("otp", "otp_list"):
             metadata_only = mode == 'otp_list'
-            message = {"cmd": 16 if metadata_only else 17, "qid": "CmdDidFillOneTimeCode", "tabId": 0, "frameId": 0,
-                       "body": {"ACT": 5 if metadata_only else 2, "TYPE": "oneTimeCodes", "frameURLs": ["https://" + self.domain]}}
-        else:
-            raise BridgeError("不支持的读取类型。")
-        return self.request(message)
+            return {"cmd": 16 if metadata_only else 17, "qid": "CmdDidFillOneTimeCode", "tabId": 0, "frameId": 0,
+                    "body": {"ACT": 5 if metadata_only else 2, "TYPE": "oneTimeCodes", "frameURLs": ["https://" + target_domain]}}
+        raise BridgeError("不支持的读取类型。")
+
+    def query(self, mode):
+        return self.request(self._query_message(mode))
+
+    def catalog_queries(self):
+        pw = json.dumps(self._query_message("password_list"))
+        otp = json.dumps(self._query_message("otp_list"))
+        return self.evaluate(
+            f"Promise.all([globalThis.__passwordsBridge.request({pw}),"
+            f"globalThis.__passwordsBridge.request({otp})])"
+        )
+
+    def catalog_fast(self, domain):
+        """Run paired check + scoped parallel metadata queries + scope cleanup in one CDP turn."""
+        pw = json.dumps(self._query_message("password_list", domain=domain, username=""))
+        otp = json.dumps(self._query_message("otp_list", domain=domain, username=""))
+        dom = json.dumps(domain)
+        self.domain = self.username = ""
+        return self.evaluate(
+            f"(async()=>{{const st=globalThis.__passwordsBridge.state();"
+            f"if(!st||!st.paired)return{{paired:false}};"
+            f"Object.assign(globalThis.__passwordsConfig,{{domain:{dom},username:'',operation:'catalog'}});"
+            f"try{{const [password,otp]=await Promise.all(["
+            f"globalThis.__passwordsBridge.request({pw}),"
+            f"globalThis.__passwordsBridge.request({otp})]);"
+            f"return{{paired:true,password,otp}};}}"
+            f"finally{{Object.assign(globalThis.__passwordsConfig,{{domain:'',username:'',operation:''}});}}}})()"
+        )
 
     def entries(self, mode):
         return decode_entries(self.query(mode))
