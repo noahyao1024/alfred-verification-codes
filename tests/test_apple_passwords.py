@@ -45,7 +45,14 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(app.catalog_query('https://github.com/login ali'), ('github.com', 'ali', 'password'))
         self.assertEqual(app.catalog_query('http://intranet ali'), ('intranet', 'ali', 'password'))
         self.assertEqual(app.catalog_query('codes github'), ('github.com', '', 'otp'))
+        self.assertEqual(app.catalog_query('github 中文'), ('github.com', '中文', 'password'))
         self.assertIsNone(app.catalog_query('g'))
+
+    def test_catalog_skips_non_ascii_and_non_website_tokens(self):
+        for query in ('你好', '你好.com', 'https://例子.测试', 'hello!', 'foo_bar',
+                      '--show', 'a', '🙂'):
+            with self.subTest(query=query):
+                self.assertIsNone(app.catalog_query(query))
 
 
 class FrontendTests(unittest.TestCase):
@@ -147,6 +154,16 @@ class FrontendTests(unittest.TestCase):
         self.assertIn('无网站条目', result['items'][0]['subtitle'])
         self.assertNotIn('验证码', json.dumps(result, ensure_ascii=False))
         self.assertFalse(result['items'][0]['valid'])
+
+    def test_non_website_input_never_reaches_password_broker(self):
+        with tempfile.TemporaryDirectory() as root, \
+             patch.object(app, 'request_catalog') as request:
+            for query in ('你好', '你好.com', 'hello!', 'foo_bar', '🙂'):
+                with self.subTest(query=query):
+                    result = app.direct_menu(query, app.AliasStore(root))
+                    self.assertNotIn('xn--', json.dumps(result))
+                    self.assertEqual(result['items'][0]['title'], '继续输入')
+        request.assert_not_called()
 
     def test_exact_alias_wins_over_direct_localhost_routing(self):
         identity = {'kind': 'password', 'username': 'alice', 'title': 'Local',

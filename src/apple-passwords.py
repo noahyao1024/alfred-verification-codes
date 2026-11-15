@@ -84,12 +84,19 @@ def catalog_query(query):
         return None
     token = raw.split(maxsplit=1)[0]
     explicit_url = '://' in token
-    if len(token) < 2 and '.' not in token:
+    # A plain Alfred keyword is shorthand for an ASCII website label. Do not
+    # turn arbitrary Unicode text or punctuation into a surprising IDNA .com
+    # query; ASCII domains and URLs still go through the strict parser below.
+    if not token.isascii():
         return None
+    if not explicit_url and '.' not in token:
+        if (len(token) < 2 or not token[0].isalnum() or not token[-1].isalnum() or
+                any(not (char.isalnum() or char == '-') for char in token)):
+            return None
     try:
         domain, needle = parse_query(raw)
     except BridgeError:
-        raise
+        return None
     # Apple still exposes a website-scoped API, but the Alfred UX is one keyword
     # path: bare words are resolved to their common .com destination silently.
     if not explicit_url and '.' not in domain and domain != 'localhost':

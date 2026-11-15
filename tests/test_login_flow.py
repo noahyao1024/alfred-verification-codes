@@ -449,7 +449,7 @@ class AliasAndMenuTests(unittest.TestCase):
         items = menu('g', self.store)['items']
         self.assertFalse(any('arg' in item for item in items))
         self.assertEqual(items[0]['title'], '继续输入')
-        self.assertIn('至少需要两个字符', items[0]['subtitle'])
+        self.assertIn('网站简称、域名或 HTTP/HTTPS URL', items[0]['subtitle'])
 
     def test_alias_matches_keep_priority_over_keyword_search(self):
         self.store.put('work', self.binding)

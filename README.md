@@ -51,11 +51,13 @@ the intended code.
 
 There is no longer a separate short-name/domain/URL menu: bare words, full
 domains, and http/https URLs use the same keyword path. A bare word is resolved
-to `.com`; type another suffix explicitly when needed. Exact aliases keep
-priority. Apple's API remains website-scoped, so this does not enumerate the
-whole vault or search arbitrary titles across unrelated sites. Passwords entries
-with no Website field are not exposed by that browser API. Add an actual website
-to such an entry before querying it, then optionally bind a short Alfred alias.
+to `.com`; type another suffix explicitly when needed. Bare website shorthand
+must be ASCII—Unicode text and malformed tokens are ignored before any broker
+request. Exact aliases keep priority. Apple's API remains website-scoped, so this
+does not enumerate the whole vault or search arbitrary titles across unrelated
+sites. Passwords entries with no Website field are not exposed by that browser
+API. Add an actual website to such an entry before querying it, then optionally
+bind a short Alfred alias.
 
 | Alfred input | Result |
 | --- | --- |
@@ -209,6 +211,10 @@ this shipped once with a generator that had never been verified.
 count macOS biometric prompts. Initial Apple pairing and credential access may
 require separate system confirmations; the workflow cannot promise one Touch ID
 prompt or bypass the system's checks.
+
+Version 0.8.11 ignores non-ASCII and malformed website tokens before contacting
+the password broker. Plain Chinese text therefore stays local instead of being
+displayed as an IDNA/Punycode `.com` hostname.
 
 Version 0.8.10 lets a metadata-only website search finish if Alfred replaces its
 Script Filter connection while the pairing dialog has focus. After fresh pairing,

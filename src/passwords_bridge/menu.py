@@ -181,7 +181,7 @@ def menu(query, store=None, editor=None):
                               'search', icon='help', query='help')]
     elif not items:
         items = [with_icon({'title': '继续输入',
-                            'subtitle': '网站关键词至少需要两个字符',
+                            'subtitle': '请输入英文网站简称、域名或 HTTP/HTTPS URL',
                             'valid': False}, 'search')]
     if alias_mode:
         items.append(with_icon({'title': '回车使用 · ⌘↩ 重命名 · ⌥↩ 删除',
